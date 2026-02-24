@@ -10,8 +10,14 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 def get_data():
     try:
-        # ttl=0 forza l'app a scaricare i dati freschi ogni volta
-        return conn.read(worksheet="Prenotazioni", ttl=0)
+        # Leggiamo i dati
+        data = conn.read(worksheet="Prenotazioni", ttl=0)
+        # Forziamo le colonne delle date a essere trattate come stringhe (testo)
+        # così Streamlit non le inverte
+        if not data.empty:
+            data['Data_Inizio'] = data['Data_Inizio'].astype(str)
+            data['Data_Fine'] = data['Data_Fine'].astype(str)
+        return data
     except:
         return pd.DataFrame(columns=["ID", "Casa", "Utente", "Data_Inizio", "Data_Fine", "Stato", "Voti_Ok"])
 
@@ -36,7 +42,6 @@ if user != "-- Seleziona --" and password == utenti[user]:
             if d_out <= d_in:
                 st.error("La data di fine deve essere successiva all'inizio!")
             else:
-                # Creazione riga con data GG/MM/AAAA
                 nuova_preno = pd.DataFrame([{
                     "ID": str(datetime.now().timestamp()),
                     "Casa": casa, 
@@ -47,46 +52,43 @@ if user != "-- Seleziona --" and password == utenti[user]:
                     "Voti_Ok": 0
                 }])
                 
-                with st.spinner('Comunicazione con Night City in corso...'):
+                # Feedback "Momento WOW"
+                with st.status("Salvataggio in corso...", expanded=True) as status:
                     updated_df = pd.concat([df, nuova_preno], ignore_index=True)
                     conn.update(worksheet="Prenotazioni", data=updated_df)
-                    
-                    # MOMENTO WOW POTENZIATO
                     st.balloons()
-                    st.success(f"🔥 Grande {user}! Richiesta per {casa} salvata correttamente.")
-                    
-                    # Aspettiamo 3 secondi per goderci i palloncini prima del refresh
-                    time.sleep(3)
-                    st.rerun()
+                    status.update(label="✅ Prenotazione Inviata!", state="complete", expanded=False)
+                
+                st.success(f"Richiesta per {casa} registrata. Reindirizzamento...")
+                time.sleep(3) # Pausa per vedere i palloncini
+                st.rerun()
 
     with tab2:
         st.header("Riepilogo e Voti")
         if df.empty:
             st.info("Nessuna prenotazione presente.")
         else:
-            # Mostra tabella pulita
+            # Tabella con date formattate GG/MM/AAAA
             st.dataframe(df[['Casa', 'Utente', 'Data_Inizio', 'Data_Fine', 'Stato']], use_container_width=True)
             
             st.divider()
-            # Sezione Votazione
             for index, row in df.iterrows():
                 if str(row['Stato']) == 'In Attesa' and row['Utente'] != user:
-                    with st.expander(f"Vota richiesta di {row['Utente']} ({row['Data_Inizio']})"):
+                    with st.expander(f"Vota: {row['Utente']} ({row['Data_Inizio']})"):
                         if st.button("✅ Approva", key=f"v_{index}"):
-                            # Logica voto
                             voti = int(row['Voti_Ok']) if pd.notnull(row['Voti_Ok']) else 0
                             df.at[index, 'Voti_Ok'] = voti + 1
                             if df.at[index, 'Voti_Ok'] >= 3:
                                 df.at[index, 'Stato'] = 'Confermata'
                             conn.update(worksheet="Prenotazioni", data=df)
-                            st.snow() # Neve per il voto!
+                            st.snow()
                             time.sleep(2)
                             st.rerun()
 
     with tab3:
         st.header("Info Case")
-        st.write("Prossimamente: le tue foto reali!")
+        st.write("Sezione in aggiornamento con le tue foto reali.")
 
 else:
     st.title("🏠 Family Booking App")
-    st.info("Esegui il login per accedere alle funzioni.")
+    st.info("Esegui il login per accedere.")
