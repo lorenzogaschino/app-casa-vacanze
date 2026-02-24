@@ -2,16 +2,16 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
+import time
 
 st.set_page_config(page_title="Family Booking", page_icon="🏠")
 
-# Connessione
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def get_data():
     try:
-        data = conn.read(worksheet="Prenotazioni", ttl=0)
-        return data
+        # ttl=0 forza l'app a scaricare i dati freschi ogni volta
+        return conn.read(worksheet="Prenotazioni", ttl=0)
     except:
         return pd.DataFrame(columns=["ID", "Casa", "Utente", "Data_Inizio", "Data_Fine", "Stato", "Voti_Ok"])
 
@@ -24,16 +24,6 @@ password = st.sidebar.text_input("PIN", type="password")
 if user != "-- Seleziona --" and password == utenti[user]:
     df = get_data()
     
-    # Assicuriamoci che le colonne esistano
-    for col in ["Stato", "Utente", "Voti_Ok"]:
-        if col not in df.columns:
-            df[col] = "In Attesa" if col == "Stato" else 0
-
-    # --- NOTIFICHE ---
-    pendenti = df[(df['Stato'] == 'In Attesa') & (df['Utente'] != user)]
-    if not pendenti.empty:
-        st.sidebar.warning(f"🔔 Hai {len(pendenti)} richieste da votare!")
-
     tab1, tab2, tab3 = st.tabs(["📅 Prenota", "📊 Stato & Voti", "📸 Info Case"])
 
     with tab1:
@@ -44,9 +34,9 @@ if user != "-- Seleziona --" and password == utenti[user]:
 
         if st.button("Invia Richiesta"):
             if d_out <= d_in:
-                st.error("Errore: La data di fine deve essere successiva all'inizio!")
+                st.error("La data di fine deve essere successiva all'inizio!")
             else:
-                # Creazione nuova riga con DATA FORMATTATA GG/MM/AAAA
+                # Creazione riga con data GG/MM/AAAA
                 nuova_preno = pd.DataFrame([{
                     "ID": str(datetime.now().timestamp()),
                     "Casa": casa, 
@@ -57,49 +47,46 @@ if user != "-- Seleziona --" and password == utenti[user]:
                     "Voti_Ok": 0
                 }])
                 
-                # Messaggio di caricamento
-                with st.spinner('Salvataggio nel database in corso...'):
+                with st.spinner('Comunicazione con Night City in corso...'):
                     updated_df = pd.concat([df, nuova_preno], ignore_index=True)
                     conn.update(worksheet="Prenotazioni", data=updated_df)
-                
-                # FEEDBACK VISIVO
-                st.success(f"✅ Richiesta per {casa} inviata con successo!")
-                st.balloons()
-                # Il piccolo ritardo permette all'utente di leggere prima del refresh
-                st.info("Aggiornamento tabella in corso...")
-                st.rerun()
+                    
+                    # MOMENTO WOW POTENZIATO
+                    st.balloons()
+                    st.success(f"🔥 Grande {user}! Richiesta per {casa} salvata correttamente.")
+                    
+                    # Aspettiamo 3 secondi per goderci i palloncini prima del refresh
+                    time.sleep(3)
+                    st.rerun()
 
     with tab2:
-        st.header("Gestione Approvazioni")
-        if df.empty or len(df) == 0:
-            st.write("Nessuna prenotazione trovata.")
+        st.header("Riepilogo e Voti")
+        if df.empty:
+            st.info("Nessuna prenotazione presente.")
         else:
-            # Mostriamo la tabella con le date formattate
-            st.subheader("Storico Richieste")
+            # Mostra tabella pulita
             st.dataframe(df[['Casa', 'Utente', 'Data_Inizio', 'Data_Fine', 'Stato']], use_container_width=True)
             
             st.divider()
-            st.subheader("Vota le richieste pendenti")
+            # Sezione Votazione
             for index, row in df.iterrows():
-                if row['Stato'] == 'In Attesa' and row['Utente'] != user:
-                    with st.expander(f"Richiesta di {row['Utente']} per {row['Casa']}"):
-                        st.write(f"Periodo: {row['Data_Inizio']} - {row['Data_Fine']}")
-                        st.write(f"Voti attuali: {row.get('Voti_Ok', 0)}/3")
-                        if st.button("✅ Approva", key=f"btn_{index}"):
-                            df.at[index, 'Voti_Ok'] = int(row.get('Voti_Ok', 0)) + 1
+                if str(row['Stato']) == 'In Attesa' and row['Utente'] != user:
+                    with st.expander(f"Vota richiesta di {row['Utente']} ({row['Data_Inizio']})"):
+                        if st.button("✅ Approva", key=f"v_{index}"):
+                            # Logica voto
+                            voti = int(row['Voti_Ok']) if pd.notnull(row['Voti_Ok']) else 0
+                            df.at[index, 'Voti_Ok'] = voti + 1
                             if df.at[index, 'Voti_Ok'] >= 3:
                                 df.at[index, 'Stato'] = 'Confermata'
                             conn.update(worksheet="Prenotazioni", data=df)
-                            st.success("Voto registrato!")
+                            st.snow() # Neve per il voto!
+                            time.sleep(2)
                             st.rerun()
 
     with tab3:
-        st.header("Le nostre Case")
-        st.subheader("Villa Tramonto (Mare)")
-        st.image("https://images.unsplash.com/photo-1499793983690-e29da59ef1c2?w=400")
-        st.subheader("Chalet Neve (Montagna)")
-        st.image("https://images.unsplash.com/photo-1518780664697-55e3ad937233?w=400")
+        st.header("Info Case")
+        st.write("Prossimamente: le tue foto reali!")
 
 else:
     st.title("🏠 Family Booking App")
-    st.info("Esegui il login per continuare.")
+    st.info("Esegui il login per accedere alle funzioni.")
