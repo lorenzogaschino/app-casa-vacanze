@@ -10,11 +10,9 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 def get_data():
     try:
-        # Prova a leggere il foglio Prenotazioni
         data = conn.read(worksheet="Prenotazioni", ttl=0)
         return data
     except:
-        # Se fallisce, crea un database vuoto con le colonne giuste
         return pd.DataFrame(columns=["ID", "Casa", "Utente", "Data_Inizio", "Data_Fine", "Stato", "Voti_Ok"])
 
 # --- LOGIN ---
@@ -26,7 +24,7 @@ password = st.sidebar.text_input("PIN", type="password")
 if user != "-- Seleziona --" and password == utenti[user]:
     df = get_data()
     
-    # Assicuriamoci che le colonne esistano sempre
+    # Assicuriamoci che le colonne esistano
     for col in ["Stato", "Utente", "Voti_Ok"]:
         if col not in df.columns:
             df[col] = "In Attesa" if col == "Stato" else 0
@@ -45,32 +43,54 @@ if user != "-- Seleziona --" and password == utenti[user]:
         d_out = st.date_input("Check-out", min_value=d_in)
 
         if st.button("Invia Richiesta"):
-            nuova_preno = pd.DataFrame([{
-                "ID": str(datetime.now().timestamp()),
-                "Casa": casa, "Utente": user,
-                "Data_Inizio": d_in.strftime('%Y-%m-%d'),
-                "Data_Fine": d_out.strftime('%Y-%m-%d'),
-                "Stato": "In Attesa", "Voti_Ok": 0
-            }])
-            updated_df = pd.concat([df, nuova_preno], ignore_index=True)
-            conn.update(worksheet="Prenotazioni", data=updated_df)
-            st.success("Richiesta inviata!")
-            st.rerun()
+            if d_out <= d_in:
+                st.error("Errore: La data di fine deve essere successiva all'inizio!")
+            else:
+                # Creazione nuova riga con DATA FORMATTATA GG/MM/AAAA
+                nuova_preno = pd.DataFrame([{
+                    "ID": str(datetime.now().timestamp()),
+                    "Casa": casa, 
+                    "Utente": user,
+                    "Data_Inizio": d_in.strftime('%d/%m/%Y'),
+                    "Data_Fine": d_out.strftime('%d/%m/%Y'),
+                    "Stato": "In Attesa", 
+                    "Voti_Ok": 0
+                }])
+                
+                # Messaggio di caricamento
+                with st.spinner('Salvataggio nel database in corso...'):
+                    updated_df = pd.concat([df, nuova_preno], ignore_index=True)
+                    conn.update(worksheet="Prenotazioni", data=updated_df)
+                
+                # FEEDBACK VISIVO
+                st.success(f"✅ Richiesta per {casa} inviata con successo!")
+                st.balloons()
+                # Il piccolo ritardo permette all'utente di leggere prima del refresh
+                st.info("Aggiornamento tabella in corso...")
+                st.rerun()
 
     with tab2:
         st.header("Gestione Approvazioni")
         if df.empty or len(df) == 0:
             st.write("Nessuna prenotazione trovata.")
         else:
+            # Mostriamo la tabella con le date formattate
+            st.subheader("Storico Richieste")
+            st.dataframe(df[['Casa', 'Utente', 'Data_Inizio', 'Data_Fine', 'Stato']], use_container_width=True)
+            
+            st.divider()
+            st.subheader("Vota le richieste pendenti")
             for index, row in df.iterrows():
-                with st.expander(f"{row['Casa']} - {row['Data_Inizio']} ({row['Stato']})"):
-                    st.write(f"Richiesto da: **{row['Utente']}** | Voti: {row.get('Voti_Ok', 0)}/3")
-                    if row['Stato'] == 'In Attesa' and row['Utente'] != user:
-                        if st.button("✅ Approva questa richiesta", key=f"btn_{index}"):
+                if row['Stato'] == 'In Attesa' and row['Utente'] != user:
+                    with st.expander(f"Richiesta di {row['Utente']} per {row['Casa']}"):
+                        st.write(f"Periodo: {row['Data_Inizio']} - {row['Data_Fine']}")
+                        st.write(f"Voti attuali: {row.get('Voti_Ok', 0)}/3")
+                        if st.button("✅ Approva", key=f"btn_{index}"):
                             df.at[index, 'Voti_Ok'] = int(row.get('Voti_Ok', 0)) + 1
                             if df.at[index, 'Voti_Ok'] >= 3:
                                 df.at[index, 'Stato'] = 'Confermata'
                             conn.update(worksheet="Prenotazioni", data=df)
+                            st.success("Voto registrato!")
                             st.rerun()
 
     with tab3:
