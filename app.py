@@ -11,7 +11,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 # Funzione per leggere i dati aggiornati
 def get_data():
-    return conn.read(worksheet="Prenotazioni", ttl=0)
+    return conn.read(ttl=0)
 
 # --- LOGIN ---
 # Sostituisci i PIN con quelli che preferisci
