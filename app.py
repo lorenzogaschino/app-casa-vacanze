@@ -1,7 +1,7 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 import time
 import os
 
@@ -17,12 +17,8 @@ def get_data():
     except:
         return pd.DataFrame(columns=["ID", "Casa", "Utente", "Data_Inizio", "Data_Fine", "Stato", "Voti_Ok"])
 
-# Funzione per controllare se due periodi si sovrappongono
 def check_overlap(start1, end1, start2, end2):
     return start1 <= end2 and start2 <= end1
-
-if 'user' not in st.session_state:
-    st.session_state.user = None
 
 # --- LOGIN ---
 utenti = {"Lorenzo": "1234", "Membro2": "5678", "Membro3": "9012", "Membro4": "3456"}
@@ -41,35 +37,39 @@ if user != "-- Seleziona --" and password == utenti[user]:
         with col_form:
             casa = st.selectbox("Scegli la meta", ["NOLI", "LIMONE"])
             
-            # --- LOGICA DI CONTROLLO DISPONIBILITÀ ---
+            # --- VISUALIZZAZIONE DISPONIBILITÀ ---
             prenotazioni_casa = df[df['Casa'] == casa].copy()
             if not prenotazioni_casa.empty:
-                st.write("⚠️ **Giorni già occupati per questa casa:**")
-                for _, row in prenotazioni_casa.iterrows():
-                    color = "🔴" if row['Stato'] == "Confermata" else "🟡"
-                    st.write(f"{color} {row['Data_Inizio']} - {row['Data_Fine']} ({row['Utente']})")
+                richieste = prenotazioni_casa[prenotazioni_casa['Stato'] == "In Attesa"]
+                confermate = prenotazioni_casa[prenotazioni_casa['Stato'] == "Confermata"]
+                
+                if not richieste.empty:
+                    st.warning("⚠️ **Giorni già RICHIESTI per questa casa:**")
+                    for _, r in richieste.iterrows():
+                        st.write(f"🟡 {r['Data_Inizio']} - {r['Data_Fine']} ({r['Utente']})")
+                
+                if not confermate.empty:
+                    st.error("🚫 **Giorni già PRENOTATI per questa casa:**")
+                    for _, r in confermate.iterrows():
+                        st.write(f"🔴 {r['Data_Inizio']} - {r['Data_Fine']} ({r['Utente']})")
             
             d_in = st.date_input("Check-in", min_value=datetime.today())
             d_out = st.date_input("Check-out", min_value=d_in)
             
             if st.button("🚀 Invia Richiesta"):
-                # Convertiamo gli input in datetime per il confronto
                 overlap_found = False
                 for _, row in prenotazioni_casa.iterrows():
-                    # Convertiamo le date dallo sheet (stringhe) a oggetti datetime
-                    data_inizio_esistente = datetime.strptime(row['Data_Inizio'], '%d/%m/%Y').date()
-                    data_fine_esistente = datetime.strptime(row['Data_Fine'], '%d/%m/%Y').date()
-                    
-                    if check_overlap(d_in, d_out, data_inizio_esistente, data_fine_esistente):
+                    d_inizio_es = datetime.strptime(row['Data_Inizio'], '%d/%m/%Y').date()
+                    d_fine_es = datetime.strptime(row['Data_Fine'], '%d/%m/%Y').date()
+                    if check_overlap(d_in, d_out, d_inizio_es, d_fine_es):
                         overlap_found = True
-                        proprietario = row['Utente']
-                        stato_sovrapp = row['Stato']
+                        proprietario, stato_sovrapp = row['Utente'], row['Stato']
                         break
                 
                 if overlap_found:
-                    st.error(f"❌ Errore: Le date scelte si sovrappongono con una prenotazione di **{proprietario}** (Stato: {stato_sovrapp}). Scegli un altro periodo!")
+                    st.error(f"Impossibile procedere: sovrapposizione con {proprietario} ({stato_sovrapp})")
                 elif d_out == d_in:
-                    st.warning("Il check-out deve essere almeno il giorno dopo il check-in!")
+                    st.warning("Il soggiorno deve durare almeno una notte!")
                 else:
                     nuova_preno = pd.DataFrame([{
                         "ID": str(datetime.now().timestamp()),
@@ -78,36 +78,30 @@ if user != "-- Seleziona --" and password == utenti[user]:
                         "Data_Fine": d_out.strftime('%d/%m/%Y'),
                         "Stato": "In Attesa", "Voti_Ok": 0
                     }])
-                    with st.status("Verifica disponibilità e salvataggio...", expanded=True) as status:
+                    with st.status("Salvataggio...", expanded=True):
                         updated_df = pd.concat([df, nuova_preno], ignore_index=True)
                         conn.update(worksheet="Prenotazioni", data=updated_df)
                         st.balloons()
-                        status.update(label="✅ Richiesta salvata!", state="complete")
                     time.sleep(2)
                     st.rerun()
 
         with col_foto:
-            st.write("🔍 **Anteprima:**")
             nome_file = "Noli.jpg" if casa == "NOLI" else "Limone.jpg"
-            if os.path.exists(nome_file):
-                st.image(nome_file, width=250)
-            else:
-                st.info("Carica le foto su GitHub per l'anteprima")
+            if os.path.exists(nome_file): st.image(nome_file, width=250)
 
     with tab2:
-        st.header("Situazione Attuale")
+        st.header("Situazione e Gestione")
         if not df.empty:
-            # Ordiniamo per data (un po' complesso essendo stringhe, ma mostriamo lo sheet così com'è)
             st.dataframe(df[['Casa', 'Utente', 'Data_Inizio', 'Data_Fine', 'Stato']], use_container_width=True)
             
             st.divider()
-            st.subheader("Vota Richieste Pendenti")
-            # Logica voti (omessa per brevità, resta quella precedente)
-            for index, row in df.iterrows():
-                if str(row.get('Stato')) == 'In Attesa' and row.get('Utente') != user:
-                    with st.expander(f"Vota: {row['Utente']} a {row['Casa']}"):
-                        st.write(f"📅 Dal {row['Data_Inizio']} al {row['Data_Fine']}")
-                        if st.button("Approva ✅", key=f"v_{index}"):
+            col_voti, col_gestione = st.columns(2)
+            
+            with col_voti:
+                st.subheader("🗳️ Vota richieste altrui")
+                for index, row in df.iterrows():
+                    if str(row.get('Stato')) == 'In Attesa' and row.get('Utente') != user:
+                        if st.button(f"Approva {row['Utente']} a {row['Casa']} ({row['Data_Inizio']})", key=f"v_{index}"):
                             v = int(row['Voti_Ok']) if pd.notnull(row['Voti_Ok']) else 0
                             df.at[index, 'Voti_Ok'] = v + 1
                             if df.at[index, 'Voti_Ok'] >= 3:
@@ -116,6 +110,20 @@ if user != "-- Seleziona --" and password == utenti[user]:
                             st.snow()
                             time.sleep(1)
                             st.rerun()
+
+            with col_gestione:
+                st.subheader("🗑️ Le mie prenotazioni")
+                mie_preno = df[df['Utente'] == user]
+                if not mie_preno.empty:
+                    for index, row in mie_preno.iterrows():
+                        if st.button(f"Elimina: {row['Casa']} ({row['Data_Inizio']})", key=f"del_{index}"):
+                            df = df.drop(index)
+                            conn.update(worksheet="Prenotazioni", data=df)
+                            st.warning("Prenotazione eliminata.")
+                            time.sleep(1)
+                            st.rerun()
+                else:
+                    st.write("Non hai prenotazioni attive.")
         else:
             st.info("Nessuna prenotazione presente.")
 
@@ -128,3 +136,7 @@ if user != "-- Seleziona --" and password == utenti[user]:
         with c2:
             st.subheader("🏔️ LIMONE")
             if os.path.exists("Limone.jpg"): st.image("Limone.jpg", use_container_width=True)
+
+else:
+    st.title("🏠 Family Booking App")
+    st.info("Esegui il login.")
