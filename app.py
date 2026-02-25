@@ -21,7 +21,7 @@ def check_overlap(start1, end1, start2, end2):
     return start1 <= end2 and start2 <= end1
 
 # --- LOGIN ---
-utenti = {"Lorenzo": "1234", "Membro2": "5678", "Membro3": "9012", "Membro4": "3456"}
+utenti = {"Anita": "1111", "Chiara": "4444", "Lorenzo" :"1234","Gianluca": "1191"}
 st.sidebar.title("🔐 Accesso")
 user = st.sidebar.selectbox("Chi sei?", ["-- Seleziona --"] + list(utenti.keys()))
 password = st.sidebar.text_input("PIN", type="password")
