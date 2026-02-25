@@ -23,10 +23,10 @@ def get_data():
 # --- CONFIGURAZIONE MEMBRI ---
 # Qui puoi rinominare i membri e cambiare i PIN
 utenti = {
+    "Anita": "1111", 
+    "Chiara": "4444", 
     "Lorenzo": "1234", 
-    "Maria": "5678", 
-    "Pietro": "9012", 
-    "Giulia": "3456"
+    "Gianluca": "1191"
 }
 
 st.sidebar.title("🔐 Accesso Family")
