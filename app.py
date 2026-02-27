@@ -8,23 +8,26 @@ import os
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Family Booking", page_icon="🏠", layout="wide")
 
-# --- CSS OTTIMIZZATO (CON BLOCCA RIQUADRI PER LEGENDA) ---
+# --- CSS DEFINITIVO (BLOcca LEGENDA E STILE MOBILE) ---
 st.markdown("""
     <style>
-    html, body, [class*="css"] { font-size: 14px; }
-    button[data-baseweb="tab"] p { font-size: 14px !important; font-weight: bold !important; }
+    /* Forza la Legenda e il titolo a rimanere in alto */
+    [data-testid="stHeader"] {
+        z-index: 999;
+    }
     
-    /* EFFETTO BLOCCA RIQUADRI PER CALENDARIO */
-    .sticky-header {
+    .sticky-wrapper {
         position: -webkit-sticky;
         position: sticky;
         top: 0;
+        z-index: 1000;
         background-color: white;
-        z-index: 100;
-        padding: 10px 0;
-        border-bottom: 1px solid #eee;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        padding: 10px;
+        border-bottom: 2px solid #f0f2f6;
     }
+
+    html, body, [class*="css"] { font-size: 14px; }
+    button[data-baseweb="tab"] p { font-size: 14px !important; font-weight: bold !important; }
     
     /* Calendario compatto */
     .cal-table { width:100%; table-layout: fixed; border-spacing: 1px; border-collapse: separate; }
@@ -55,43 +58,40 @@ utenti_config = {
 }
 icone_case = {"LIMONE": "🏔️", "NOLI": "🏖️"}
 
-# --- GESTIONE LOGIN ---
+# --- GESTIONE SESSIONE (FIX LOGOUT) ---
 if 'authenticated' not in st.session_state:
     st.session_state['authenticated'] = False
 
+# --- LOGICA DI ACCESSO ---
 if not st.session_state['authenticated']:
     st.title("🏠 Family Booking")
     st.subheader("🔐 Accesso")
-    user_input = st.selectbox("Chi sei?", ["-- Seleziona --"] + list(utenti_config.keys()))
-    pass_input = st.text_input("Inserisci il tuo PIN", type="password")
+    u_log = st.selectbox("Chi sei?", ["-- Seleziona --"] + list(utenti_config.keys()))
+    p_log = st.text_input("PIN", type="password")
     if st.button("Accedi"):
-        if user_input != "-- Seleziona --" and pass_input == utenti_config[user_input]["pin"]:
+        if u_log != "-- Seleziona --" and p_log == utenti_config[u_log]["pin"]:
             st.session_state['authenticated'] = True
-            st.session_state['user'] = user_input
+            st.session_state['user_name'] = u_log
             st.rerun()
         else:
             st.error("PIN errato")
 else:
-    user = st.session_state['user']
+    # --- APP DOPO IL LOGIN ---
+    current_user = st.session_state['user_name']
     df = get_data()
     conn = st.connection("gsheets", type=GSheetsConnection)
     
-    col_tit, col_log = st.columns([5,1])
-    with col_tit: st.write(f"Ciao **{user}**! 👋")
-    with col_log:
-        if st.button("Logout"):
-            st.session_state['authenticated'] = False
-            st.rerun()
+    # Header fisso in alto per i Tab
+    st.write(f"Ciao **{current_user}**! 👋")
 
     tab1, tab2, tab3, tab4 = st.tabs(["📅 PRENOTA", "📊 GESTIONE", "🗓️ CALENDARIO", "📈 STATISTICHE"])
 
-    # --- TAB 1: PRENOTA ---
     with tab1:
         st.header("Nuova Prenotazione")
         oggi = datetime.now().date()
         casa_scelta = st.selectbox("Scegli la meta", ["NOLI", "LIMONE"])
         f_nome = "Noli.jpg" if casa_scelta == "NOLI" else "Limone.jpg"
-        if os.path.exists(f_nome): st.image(f_nome, width=280)
+        if os.path.exists(f_nome): st.image(f_nome, width=250)
 
         p_casa = df[df['Casa'] == casa_scelta].copy()
         g_conf, g_att = [], []
@@ -109,120 +109,119 @@ else:
         if notti > 0: st.info(f"🌙 Soggiorno di **{notti}** notti")
         
         note = st.text_area("Note")
-        if st.button("🚀 INVIA RICHIESTA"):
+        if st.button("🚀 INVIA"):
             nuova = pd.DataFrame([{
-                "ID": str(datetime.now().timestamp()), "Casa": casa_scelta, "Utente": user,
+                "ID": str(datetime.now().timestamp()), "Casa": casa_scelta, "Utente": current_user,
                 "Data_Inizio": d_in.strftime('%d/%m/%Y'), "Data_Fine": d_out.strftime('%d/%m/%Y'),
                 "Stato": "In Attesa", "Voti_Ok": "", "Note": note
             }])
             conn.update(worksheet="Prenotazioni", data=pd.concat([df, nuova], ignore_index=True))
-            st.success("Inviata!"); time.sleep(1); st.rerun()
+            st.success("Richiesta inviata!"); time.sleep(1); st.rerun()
 
-    # --- TAB 2: GESTIONE ---
     with tab2:
         st.header("Elenco prenotazioni")
         if not df.empty:
-            all_users = set(utenti_config.keys())
-            def get_voti_details(row):
-                votanti = [v.strip() for v in str(row['Voti_Ok']).split(",") if v.strip()]
-                mancano = list(all_users - (set(votanti) | {row['Utente']}))
-                return ", ".join(votanti), ", ".join(mancano)
-            df[['Approvato', 'Mancano']] = df.apply(get_voti_details, axis=1, result_type='expand')
+            all_u = set(utenti_config.keys())
+            def get_v_d(row):
+                v = [x.strip() for x in str(row['Voti_Ok']).split(",") if x.strip()]
+                m = list(all_u - (set(v) | {row['Utente']}))
+                return ", ".join(v), ", ".join(m)
+            df[['Approvato', 'Mancano']] = df.apply(get_v_d, axis=1, result_type='expand')
             st.dataframe(df[['Casa', 'Utente', 'Data_Inizio', 'Data_Fine', 'Stato', 'Approvato', 'Mancano']], use_container_width=True)
             
             st.divider()
             st.subheader("🗳️ Approva")
             for idx, row in df.iterrows():
-                if row['Utente'] != user and row['Stato'] == "In Attesa":
-                    votanti = [v.strip() for v in str(row['Voti_Ok']).split(",") if v.strip()]
-                    if user not in votanti:
+                if row['Utente'] != current_user and row['Stato'] == "In Attesa":
+                    v = [x.strip() for x in str(row['Voti_Ok']).split(",") if x.strip()]
+                    if current_user not in v:
                         label = f"Approva - {row['Casa']} - ({row['Data_Inizio']}-{row['Data_Fine']}) - {row['Utente']}"
                         if st.button(label, key=f"v_{idx}"):
-                            votanti.append(user)
-                            df.at[idx, 'Voti_Ok'] = ", ".join(votanti)
-                            if len(votanti) >= 3: df.at[idx, 'Stato'] = "Confermata"
+                            v.append(current_user)
+                            df.at[idx, 'Voti_Ok'] = ", ".join(v)
+                            if len(v) >= 3: df.at[idx, 'Stato'] = "Confermata"
                             conn.update(worksheet="Prenotazioni", data=df); st.rerun()
             
             st.subheader("🗑️ Elimina le tue")
-            for idx, row in df[df['Utente'] == user].iterrows():
+            for idx, row in df[df['Utente'] == current_user].iterrows():
                 if st.button(f"Cancella {row['Casa']} {row['Data_Inizio']}", key=f"del_{idx}"):
                     df = df.drop(idx); conn.update(worksheet="Prenotazioni", data=df); st.rerun()
 
-    # --- TAB 3: CALENDARIO (CON BLOCCA RIQUADRI) ---
     with tab3:
-        # CONTENITORE BLOCCATO (Titolo + Legenda)
-        legenda_html = ""
-        for u, cfg in utenti_config.items():
-            legenda_html += f'<span class="legenda-item" style="background:{cfg["color"]}">{u}</span>'
-        legenda_html += '<span class="legenda-item" style="background:#FFFFCC; color:#666; border:1px solid #ffd700">In Attesa</span>'
+        # --- SEZIONE STICKY (LEGENDA BLOCCATA) ---
+        legenda_h = "".join([f'<span class="legenda-item" style="background:{c["color"]}">{u}</span>' for u, c in utenti_config.items()])
+        legenda_h += '<span class="legenda-item" style="background:#FFFFCC; color:#666; border:1px solid #ffd700">In Attesa</span>'
         
         st.markdown(f"""
-            <div class="sticky-header">
-                <h2 style="margin:0; padding-bottom:5px;">Calendario 2026</h2>
-                {legenda_html}
+            <div class="sticky-wrapper">
+                <h3 style="margin:0;">🗓️ Calendario 2026</h3>
+                {legenda_h}
             </div>
         """, unsafe_allow_html=True)
 
         occupied = {}
-        df_sorted = df.sort_values(by="Stato", ascending=False) 
-        for _, r in df_sorted.iterrows():
+        df_s = df.sort_values(by="Stato", ascending=False) 
+        for _, r in df_s.iterrows():
             try:
-                start = datetime.strptime(r['Data_Inizio'], '%d/%m/%Y').date()
-                end = datetime.strptime(r['Data_Fine'], '%d/%m/%Y').date()
-                curr = start
-                while curr <= end:
+                s = datetime.strptime(r['Data_Inizio'], '%d/%m/%Y').date()
+                e = datetime.strptime(r['Data_Fine'], '%d/%m/%Y').date()
+                curr = s
+                while curr <= e:
                     if curr not in occupied or (occupied[curr]['s'] == "In Attesa" and r['Stato'] == "Confermata"):
                         occupied[curr] = {"u": r['Utente'], "c": r['Casa'], "s": r['Stato']}
                     curr += timedelta(days=1)
             except: continue
 
-        # Griglia dei mesi che scorre sotto la header
+        # Visualizzazione mesi
         for riga in range(6):
-            cols_m = st.columns(2)
+            cols = st.columns(2)
             for box in range(2):
-                m_idx = riga * 2 + box + 1
-                with cols_m[box]:
-                    curr_month = datetime(2026, m_idx, 1).date()
-                    st.write(f"**{curr_month.strftime('%b').upper()}**")
+                m = riga * 2 + box + 1
+                with cols[box]:
+                    m_date = datetime(2026, m, 1).date()
+                    st.write(f"**{m_date.strftime('%B').upper()}**")
                     html = "<table class='cal-table'><tr>"
-                    for d_name in ['L','M','M','G','V','S','D']: html += f"<th>{d_name}</th>"
+                    for dn in ['L','M','M','G','V','S','D']: html += f"<th>{dn}</th>"
                     html += "</tr><tr>"
-                    wd = curr_month.weekday()
+                    wd = m_date.weekday()
                     for _ in range(wd): html += "<td></td>"
-                    days_in_month = ( (datetime(2026, m_idx+1, 1).date() if m_idx < 12 else datetime(2027,1,1).date()) - curr_month).days
-                    curr_col = wd
-                    for d in range(1, days_in_month + 1):
-                        d_obj = curr_month.replace(day=d)
+                    days = ((datetime(2026, m+1, 1).date() if m < 12 else datetime(2027,1,1).date()) - m_date).days
+                    c_col = wd
+                    for d in range(1, days + 1):
+                        d_obj = m_date.replace(day=d)
                         bg, content = "", f"<div class='day-num'>{d}</div>"
                         if d_obj in occupied:
-                            info = occupied[d_obj]
-                            bg = f"background-color: {utenti_config[info['u']]['color']}; color: white;" if info['s'] == "Confermata" else "background-color: #FFFFCC; color: #666;"
-                            content += f"<div class='full-cell'>{icone_case.get(info['c'], '')}</div>"
+                            inf = occupied[d_obj]
+                            bg = f"background-color: {utenti_config[inf['u']]['color']}; color: white;" if inf['s'] == "Confermata" else "background-color: #FFFFCC; color: #666;"
+                            content += f"<div class='full-cell'>{icone_case.get(inf['c'], '')}</div>"
                         html += f"<td class='cal-td' style='{bg}'>{content}</td>"
-                        curr_col += 1
-                        if curr_col > 6: html += "</tr><tr>"; curr_col = 0
+                        c_col += 1
+                        if c_col > 6: html += "</tr><tr>"; c_col = 0
                     st.markdown(html + "</tr></table>", unsafe_allow_html=True)
 
-    # --- TAB 4: STATISTICHE ---
     with tab4:
         st.header("Statistiche")
         if not df.empty:
-            def g_calc(r):
+            def gc(r):
                 try: return (datetime.strptime(r['Data_Fine'], '%d/%m/%Y') - datetime.strptime(r['Data_Inizio'], '%d/%m/%Y')).days + 1
                 except: return 0
-            df['GG'] = df.apply(g_calc, axis=1)
+            df['GG'] = df.apply(gc, axis=1)
             c1, c2 = st.columns(2)
             with c1:
-                if os.path.exists("Noli.jpg"): st.image("Noli.jpg", width=150)
+                if os.path.exists("Noli.jpg"): st.image("Noli.jpg", width=120)
                 st.metric("NOLI 🏖️", f"{df[(df['Casa'] == 'NOLI') & (df['Stato'] == 'Confermata')]['GG'].sum()} gg")
             with c2:
-                if os.path.exists("Limone.jpg"): st.image("Limone.jpg", width=150)
+                if os.path.exists("Limone.jpg"): st.image("Limone.jpg", width=120)
                 st.metric("LIMONE 🏔️", f"{df[(df['Casa'] == 'LIMONE') & (df['Stato'] == 'Confermata')]['GG'].sum()} gg")
             
             st.divider()
-            stats_u = []
+            stats = []
             for u in utenti_config.keys():
-                conf = df[(df['Utente'] == u) & (df['Stato'] == "Confermata")]['GG'].sum()
-                att = df[(df['Utente'] == u) & (df['Stato'] == "In Attesa")]['GG'].sum()
-                stats_u.append({"Utente": u, "Confermati": int(conf), "In attesa": int(att), "Totale": int(conf + att)})
-            st.dataframe(pd.DataFrame(stats_u), hide_index=True)
+                c = df[(df['Utente'] == u) & (df['Stato'] == "Confermata")]['GG'].sum()
+                a = df[(df['Utente'] == u) & (df['Stato'] == "In Attesa")]['GG'].sum()
+                stats.append({"Utente": u, "Confermati": int(c), "In attesa": int(a), "Totale": int(c+a)})
+            st.dataframe(pd.DataFrame(stats), hide_index=True)
+            
+            if st.button("Logout"):
+                st.session_state['authenticated'] = False
+                st.rerun()
