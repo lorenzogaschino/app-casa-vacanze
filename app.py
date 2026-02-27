@@ -8,11 +8,23 @@ import os
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Family Booking", page_icon="🏠", layout="wide")
 
-# --- CSS OTTIMIZZATO PER MOBILE ---
+# --- CSS OTTIMIZZATO (CON BLOCCA RIQUADRI PER LEGENDA) ---
 st.markdown("""
     <style>
     html, body, [class*="css"] { font-size: 14px; }
     button[data-baseweb="tab"] p { font-size: 14px !important; font-weight: bold !important; }
+    
+    /* EFFETTO BLOCCA RIQUADRI PER CALENDARIO */
+    .sticky-header {
+        position: -webkit-sticky;
+        position: sticky;
+        top: 0;
+        background-color: white;
+        z-index: 100;
+        padding: 10px 0;
+        border-bottom: 1px solid #eee;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    }
     
     /* Calendario compatto */
     .cal-table { width:100%; table-layout: fixed; border-spacing: 1px; border-collapse: separate; }
@@ -22,9 +34,6 @@ st.markdown("""
     
     /* Legenda */
     .legenda-item { display: inline-block; padding: 2px 8px; border-radius: 4px; margin: 2px; color: white; font-size: 11px; font-weight: bold; }
-    
-    /* Login Box */
-    .login-box { padding: 20px; border-radius: 10px; border: 1px solid #eee; background-color: #f9f9f9; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -46,34 +55,29 @@ utenti_config = {
 }
 icone_case = {"LIMONE": "🏔️", "NOLI": "🏖️"}
 
-# --- GESTIONE LOGIN (SPOSTATO DALLA SIDEBAR) ---
+# --- GESTIONE LOGIN ---
 if 'authenticated' not in st.session_state:
     st.session_state['authenticated'] = False
 
 if not st.session_state['authenticated']:
     st.title("🏠 Family Booking")
     st.subheader("🔐 Accesso")
-    with st.container():
-        user_input = st.selectbox("Chi sei?", ["-- Seleziona --"] + list(utenti_config.keys()))
-        pass_input = st.text_input("Inserisci il tuo PIN", type="password")
-        
-        if st.button("Accedi"):
-            if user_input != "-- Seleziona --" and pass_input == utenti_config[user_input]["pin"]:
-                st.session_state['authenticated'] = True
-                st.session_state['user'] = user_input
-                st.rerun()
-            else:
-                st.error("PIN errato o utente non selezionato")
+    user_input = st.selectbox("Chi sei?", ["-- Seleziona --"] + list(utenti_config.keys()))
+    pass_input = st.text_input("Inserisci il tuo PIN", type="password")
+    if st.button("Accedi"):
+        if user_input != "-- Seleziona --" and pass_input == utenti_config[user_input]["pin"]:
+            st.session_state['authenticated'] = True
+            st.session_state['user'] = user_input
+            st.rerun()
+        else:
+            st.error("PIN errato")
 else:
-    # --- APP DOPO IL LOGIN ---
     user = st.session_state['user']
     df = get_data()
     conn = st.connection("gsheets", type=GSheetsConnection)
     
-    # Pulsante Logout in alto a destra (opzionale)
     col_tit, col_log = st.columns([5,1])
-    with col_tit:
-        st.write(f"Ciao **{user}**! 👋")
+    with col_tit: st.write(f"Ciao **{user}**! 👋")
     with col_log:
         if st.button("Logout"):
             st.session_state['authenticated'] = False
@@ -86,10 +90,8 @@ else:
         st.header("Nuova Prenotazione")
         oggi = datetime.now().date()
         casa_scelta = st.selectbox("Scegli la meta", ["NOLI", "LIMONE"])
-        
         f_nome = "Noli.jpg" if casa_scelta == "NOLI" else "Limone.jpg"
-        if os.path.exists(f_nome):
-            st.image(f_nome, width=280)
+        if os.path.exists(f_nome): st.image(f_nome, width=280)
 
         p_casa = df[df['Casa'] == casa_scelta].copy()
         g_conf, g_att = [], []
@@ -103,7 +105,6 @@ else:
 
         d_in = st.date_input("Check-in", value=oggi + timedelta(days=1), min_value=oggi)
         d_out = st.date_input("Check-out", value=d_in + timedelta(days=1), min_value=d_in + timedelta(days=1))
-        
         notti = (d_out - d_in).days
         if notti > 0: st.info(f"🌙 Soggiorno di **{notti}** notti")
         
@@ -126,7 +127,6 @@ else:
                 votanti = [v.strip() for v in str(row['Voti_Ok']).split(",") if v.strip()]
                 mancano = list(all_users - (set(votanti) | {row['Utente']}))
                 return ", ".join(votanti), ", ".join(mancano)
-            
             df[['Approvato', 'Mancano']] = df.apply(get_voti_details, axis=1, result_type='expand')
             st.dataframe(df[['Casa', 'Utente', 'Data_Inizio', 'Data_Fine', 'Stato', 'Approvato', 'Mancano']], use_container_width=True)
             
@@ -148,15 +148,20 @@ else:
                 if st.button(f"Cancella {row['Casa']} {row['Data_Inizio']}", key=f"del_{idx}"):
                     df = df.drop(idx); conn.update(worksheet="Prenotazioni", data=df); st.rerun()
 
-    # --- TAB 3: CALENDARIO ---
+    # --- TAB 3: CALENDARIO (CON BLOCCA RIQUADRI) ---
     with tab3:
-        st.header("Calendario 2026")
+        # CONTENITORE BLOCCATO (Titolo + Legenda)
         legenda_html = ""
         for u, cfg in utenti_config.items():
             legenda_html += f'<span class="legenda-item" style="background:{cfg["color"]}">{u}</span>'
         legenda_html += '<span class="legenda-item" style="background:#FFFFCC; color:#666; border:1px solid #ffd700">In Attesa</span>'
-        st.markdown(legenda_html, unsafe_allow_html=True)
-        st.write("")
+        
+        st.markdown(f"""
+            <div class="sticky-header">
+                <h2 style="margin:0; padding-bottom:5px;">Calendario 2026</h2>
+                {legenda_html}
+            </div>
+        """, unsafe_allow_html=True)
 
         occupied = {}
         df_sorted = df.sort_values(by="Stato", ascending=False) 
@@ -171,6 +176,7 @@ else:
                     curr += timedelta(days=1)
             except: continue
 
+        # Griglia dei mesi che scorre sotto la header
         for riga in range(6):
             cols_m = st.columns(2)
             for box in range(2):
@@ -183,9 +189,7 @@ else:
                     html += "</tr><tr>"
                     wd = curr_month.weekday()
                     for _ in range(wd): html += "<td></td>"
-                    if m_idx == 12: next_m = datetime(2027, 1, 1).date()
-                    else: next_m = datetime(2026, m_idx+1, 1).date()
-                    days_in_month = (next_m - curr_month).days
+                    days_in_month = ( (datetime(2026, m_idx+1, 1).date() if m_idx < 12 else datetime(2027,1,1).date()) - curr_month).days
                     curr_col = wd
                     for d in range(1, days_in_month + 1):
                         d_obj = curr_month.replace(day=d)
@@ -207,7 +211,6 @@ else:
                 try: return (datetime.strptime(r['Data_Fine'], '%d/%m/%Y') - datetime.strptime(r['Data_Inizio'], '%d/%m/%Y')).days + 1
                 except: return 0
             df['GG'] = df.apply(g_calc, axis=1)
-            
             c1, c2 = st.columns(2)
             with c1:
                 if os.path.exists("Noli.jpg"): st.image("Noli.jpg", width=150)
@@ -217,19 +220,9 @@ else:
                 st.metric("LIMONE 🏔️", f"{df[(df['Casa'] == 'LIMONE') & (df['Stato'] == 'Confermata')]['GG'].sum()} gg")
             
             st.divider()
-            st.subheader("🏆 Giorni per Utente")
-            
             stats_u = []
             for u in utenti_config.keys():
                 conf = df[(df['Utente'] == u) & (df['Stato'] == "Confermata")]['GG'].sum()
                 att = df[(df['Utente'] == u) & (df['Stato'] == "In Attesa")]['GG'].sum()
                 stats_u.append({"Utente": u, "Confermati": int(conf), "In attesa": int(att), "Totale": int(conf + att)})
-            
-            st.dataframe(pd.DataFrame(stats_u), 
-                         column_config={
-                             "Utente": st.column_config.TextColumn("Utente", width="small"),
-                             "Confermati": st.column_config.NumberColumn("Confermati", width="small"),
-                             "In attesa": st.column_config.NumberColumn("In attesa", width="small"),
-                             "Totale": st.column_config.NumberColumn("Totale", width="small")
-                         }, 
-                         hide_index=True)
+            st.dataframe(pd.DataFrame(stats_u), hide_index=True)
