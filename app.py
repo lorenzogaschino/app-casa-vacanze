@@ -11,21 +11,17 @@ st.set_page_config(page_title="Family Booking", page_icon="🏠", layout="wide")
 # --- CSS OTTIMIZZATO PER MOBILE ---
 st.markdown("""
     <style>
-    /* Dimensioni font ridotte per mobile */
     html, body, [class*="css"] { font-size: 14px; }
     button[data-baseweb="tab"] p { font-size: 14px !important; font-weight: bold !important; }
     
-    /* Calendario super compatto */
+    /* Calendario compatto */
     .cal-table { width:100%; table-layout: fixed; border-spacing: 1px; border-collapse: separate; }
     .cal-td { text-align:center; height:32px; border-radius:2px; border:1px solid #f0f0f0; padding:0 !important; position:relative; }
     .day-num { position: absolute; top: 0px; left: 1px; font-size: 8px; color: #666; z-index: 5; }
     .full-cell { height: 100%; width: 100%; display: flex; align-items: center; justify-content: center; font-size: 12px; }
     
-    /* Legenda compatta */
+    /* Legenda */
     .legenda-item { display: inline-block; padding: 2px 8px; border-radius: 4px; margin: 2px; color: white; font-size: 11px; font-weight: bold; }
-    
-    /* Tabella statistiche compatta */
-    .small-table { font-size: 12px !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -56,46 +52,52 @@ if user != "-- Seleziona --" and password == utenti_config[user]["pin"]:
     df = get_data()
     conn = st.connection("gsheets", type=GSheetsConnection)
     
-    tab1, tab2, tab3, tab4 = st.tabs(["📅 PRENOTA", "📊 GESTIONE", "🗓️ CALENDARIO", "📈 STATS"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📅 PRENOTA", "📊 GESTIONE", "🗓️ CALENDARIO", "📈 STATISTICHE"])
 
-    # --- TAB 1: PRENOTA (RIPRISTINO ALERT E CONTEGGIO) ---
+    # --- TAB 1: PRENOTA (FIX FOTO) ---
     with tab1:
         st.header("Nuova Prenotazione")
         oggi = datetime.now().date()
         
-        # Mostra disponibilità attuale
-        casa_scelta = st.selectbox("Scegli la meta", ["NOLI", "LIMONE"])
-        
-        p_casa = df[df['Casa'] == casa_scelta].copy()
-        g_conf, g_att = [], []
-        for _, r in p_casa.iterrows():
-            info = f"{r['Data_Inizio']}-{r['Data_Fine']} ({r['Utente']})"
-            if r['Stato'] == "Confermata": g_conf.append(info)
-            else: g_att.append(info)
-        
-        if g_conf: st.error(f"🚫 **OCCUPATO:** {', '.join(g_conf)}")
-        if g_att: st.warning(f"⏳ **RICHIESTO:** {', '.join(g_att)}")
+        col_form, col_foto = st.columns([2, 1])
+        with col_form:
+            casa_scelta = st.selectbox("Scegli la meta", ["NOLI", "LIMONE"])
+            
+            p_casa = df[df['Casa'] == casa_scelta].copy()
+            g_conf, g_att = [], []
+            for _, r in p_casa.iterrows():
+                info = f"{r['Data_Inizio']}-{r['Data_Fine']} ({r['Utente']})"
+                if r['Stato'] == "Confermata": g_conf.append(info)
+                else: g_att.append(info)
+            
+            if g_conf: st.error(f"🚫 **OCCUPATO:** {', '.join(g_conf)}")
+            if g_att: st.warning(f"⏳ **RICHIESTO:** {', '.join(g_att)}")
 
-        d_in = st.date_input("Check-in", value=oggi + timedelta(days=1), min_value=oggi)
-        d_out = st.date_input("Check-out", value=d_in + timedelta(days=1), min_value=d_in + timedelta(days=1))
-        
-        # Ripristino conteggio notti
-        notti = (d_out - d_in).days
-        if notti > 0: st.info(f"🌙 Soggiorno di **{notti}** notti")
-        
-        note = st.text_area("Note")
-        if st.button("🚀 INVIA RICHIESTA"):
-            nuova = pd.DataFrame([{
-                "ID": str(datetime.now().timestamp()), "Casa": casa_scelta, "Utente": user,
-                "Data_Inizio": d_in.strftime('%d/%m/%Y'), "Data_Fine": d_out.strftime('%d/%m/%Y'),
-                "Stato": "In Attesa", "Voti_Ok": "", "Note": note
-            }])
-            conn.update(worksheet="Prenotazioni", data=pd.concat([df, nuova], ignore_index=True))
-            st.success("Inviata!"); time.sleep(1); st.rerun()
+            d_in = st.date_input("Check-in", value=oggi + timedelta(days=1), min_value=oggi)
+            d_out = st.date_input("Check-out", value=d_in + timedelta(days=1), min_value=d_in + timedelta(days=1))
+            
+            notti = (d_out - d_in).days
+            if notti > 0: st.info(f"🌙 Soggiorno di **{notti}** notti")
+            
+            note = st.text_area("Note")
+            if st.button("🚀 INVIA RICHIESTA"):
+                nuova = pd.DataFrame([{
+                    "ID": str(datetime.now().timestamp()), "Casa": casa_scelta, "Utente": user,
+                    "Data_Inizio": d_in.strftime('%d/%m/%Y'), "Data_Fine": d_out.strftime('%d/%m/%Y'),
+                    "Stato": "In Attesa", "Voti_Ok": "", "Note": note
+                }])
+                conn.update(worksheet="Prenotazioni", data=pd.concat([df, nuova], ignore_index=True))
+                st.success("Inviata!"); time.sleep(1); st.rerun()
 
-    # --- TAB 2: GESTIONE (LABEL TASTO AGGIORNATA) ---
+        with col_foto:
+            # CORREZIONE: Foto basata sulla selezione
+            f_nome = "Noli.jpg" if casa_scelta == "NOLI" else "Limone.jpg"
+            if os.path.exists(f_nome):
+                st.image(f_nome, caption=casa_scelta, use_container_width=True)
+
+    # --- TAB 2: GESTIONE (FIX TABELLA E NOMI) ---
     with tab2:
-        st.header("Gestione Voti")
+        st.header("Elenco prenotazioni") # CORREZIONE NOME
         if not df.empty:
             all_users = set(utenti_config.keys())
             def get_voti_details(row):
@@ -104,7 +106,8 @@ if user != "-- Seleziona --" and password == utenti_config[user]["pin"]:
                 return ", ".join(votanti), ", ".join(mancano)
             
             df[['Approvato', 'Mancano']] = df.apply(get_voti_details, axis=1, result_type='expand')
-            st.dataframe(df[['Casa', 'Utente', 'Data_Inizio', 'Stato', 'Approvato', 'Mancano']], use_container_width=True)
+            # CORREZIONE: Aggiunta Data_Fine
+            st.dataframe(df[['Casa', 'Utente', 'Data_Inizio', 'Data_Fine', 'Stato', 'Approvato', 'Mancano']], use_container_width=True)
             
             st.divider()
             st.subheader("🗳️ Approva")
@@ -112,7 +115,6 @@ if user != "-- Seleziona --" and password == utenti_config[user]["pin"]:
                 if row['Utente'] != user and row['Stato'] == "In Attesa":
                     votanti = [v.strip() for v in str(row['Voti_Ok']).split(",") if v.strip()]
                     if user not in votanti:
-                        # Label: Approva - [casa] - [date] - [utente]
                         label = f"Approva - {row['Casa']} - ({row['Data_Inizio']}-{row['Data_Fine']}) - {row['Utente']}"
                         if st.button(label, key=f"v_{idx}"):
                             votanti.append(user)
@@ -125,11 +127,9 @@ if user != "-- Seleziona --" and password == utenti_config[user]["pin"]:
                 if st.button(f"Cancella {row['Casa']} {row['Data_Inizio']}", key=f"del_{idx}"):
                     df = df.drop(idx); conn.update(worksheet="Prenotazioni", data=df); st.rerun()
 
-    # --- TAB 3: CALENDARIO (RIPRISTINO LEGENDA) ---
+    # --- TAB 3: CALENDARIO ---
     with tab3:
         st.header("Calendario 2026")
-        
-        # Ripristino Legenda
         legenda_html = ""
         for u, cfg in utenti_config.items():
             legenda_html += f'<span class="legenda-item" style="background:{cfg["color"]}">{u}</span>'
@@ -150,7 +150,6 @@ if user != "-- Seleziona --" and password == utenti_config[user]["pin"]:
                     curr += timedelta(days=1)
             except: continue
 
-        # Visualizzazione compatta (2 mesi per riga su mobile)
         for riga in range(6):
             cols_m = st.columns(2)
             for box in range(2):
@@ -172,50 +171,49 @@ if user != "-- Seleziona --" and password == utenti_config[user]["pin"]:
                         bg, content = "", f"<div class='day-num'>{d}</div>"
                         if d_obj in occupied:
                             info = occupied[d_obj]
-                            if info['s'] == "Confermata":
-                                bg = f"background-color: {utenti_config[info['u']]['color']}; color: white;"
-                            else:
-                                bg = "background-color: #FFFFCC; color: #666;"
+                            bg = f"background-color: {utenti_config[info['u']]['color']}; color: white;" if info['s'] == "Confermata" else "background-color: #FFFFCC; color: #666;"
                             content += f"<div class='full-cell'>{icone_case.get(info['c'], '')}</div>"
                         html += f"<td class='cal-td' style='{bg}'>{content}</td>"
                         curr_col += 1
                         if curr_col > 6: html += "</tr><tr>"; curr_col = 0
                     st.markdown(html + "</tr></table>", unsafe_allow_html=True)
 
-    # --- TAB 4: STATS (COLONNE RISTRETTE) ---
+    # --- TAB 4: STATISTICHE (FIX FOTO E LABELS) ---
     with tab4:
-        st.header("Statistiche")
+        st.header("Statistiche") # CORREZIONE LABEL MENU
         if not df.empty:
             def g_calc(r):
                 try: return (datetime.strptime(r['Data_Fine'], '%d/%m/%Y') - datetime.strptime(r['Data_Inizio'], '%d/%m/%Y')).days + 1
                 except: return 0
             df['GG'] = df.apply(g_calc, axis=1)
             
-            # Statistiche utenti con colonne ottimizzate
+            # CORREZIONE: Foto a fianco delle case
+            c1, c2 = st.columns(2)
+            with c1:
+                if os.path.exists("Noli.jpg"): st.image("Noli.jpg", width=150)
+                st.metric("NOLI 🏖️", f"{df[(df['Casa'] == 'NOLI') & (df['Stato'] == 'Confermata')]['GG'].sum()} gg")
+            with c2:
+                if os.path.exists("Limone.jpg"): st.image("Limone.jpg", width=150)
+                st.metric("LIMONE 🏔️", f"{df[(df['Casa'] == 'LIMONE') & (df['Stato'] == 'Confermata')]['GG'].sum()} gg")
+            
+            st.divider()
+            st.subheader("🏆 Giorni per Utente")
+            
             stats_u = []
             for u in utenti_config.keys():
                 conf = df[(df['Utente'] == u) & (df['Stato'] == "Confermata")]['GG'].sum()
                 att = df[(df['Utente'] == u) & (df['Stato'] == "In Attesa")]['GG'].sum()
-                stats_u.append({"User": u, "OK": int(conf), "Wait": int(att), "Tot": int(conf + att)})
+                # CORREZIONE: Intestazioni Colonne Richieste
+                stats_u.append({"Utente": u, "Confermati": int(conf), "In attesa": int(att), "Totale": int(conf + att)})
             
-            st.subheader("🏆 Giorni per Utente")
-            # Uso st.dataframe con column_config per stringere le colonne al massimo
             st.dataframe(pd.DataFrame(stats_u), 
                          column_config={
-                             "User": st.column_config.TextColumn("User", width="small"),
-                             "OK": st.column_config.NumberColumn("OK", width="small"),
-                             "Wait": st.column_config.NumberColumn("Wait", width="small"),
-                             "Tot": st.column_config.NumberColumn("Tot", width="small")
+                             "Utente": st.column_config.TextColumn("Utente", width="small"),
+                             "Confermati": st.column_config.NumberColumn("Confermati", width="small"),
+                             "In attesa": st.column_config.NumberColumn("In attesa", width="small"),
+                             "Totale": st.column_config.NumberColumn("Totale", width="small")
                          }, 
-                         hide_index=True, 
-                         use_container_width=False)
-            
-            st.divider()
-            c1, c2 = st.columns(2)
-            with c1:
-                st.metric("NOLI 🏖️", f"{df[(df['Casa'] == 'NOLI') & (df['Stato'] == 'Confermata')]['GG'].sum()} gg")
-            with c2:
-                st.metric("LIMONE 🏔️", f"{df[(df['Casa'] == 'LIMONE') & (df['Stato'] == 'Confermata')]['GG'].sum()} gg")
+                         hide_index=True)
 
 else:
     st.title("🏠 Family Booking"); st.info("Inserisci il PIN per accedere.")
