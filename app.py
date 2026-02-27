@@ -203,4 +203,4 @@ if user != "-- Seleziona --" and password == utenti_config[user]["pin"]:
                 st.write(f"**{s_c.idxmax()}** ({s_c.max()} giorni totali)")
 
 else:
-    st.title("🏠 Family Booking
+    st.title("🏠 Family Booking"); st.info("Inserisci il PIN nella sidebar per accedere.")
