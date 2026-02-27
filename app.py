@@ -8,15 +8,16 @@ import os
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Family Booking", page_icon="🏠", layout="wide")
 
-# --- STILE CSS PERSONALIZZATO ---
+# --- STILE CSS ---
 st.markdown("""
     <style>
     button[data-baseweb="tab"] p { font-size: 20px !important; font-weight: 800 !important; color: #007bff !important; }
     .stAlert { border-radius: 12px; }
     .cal-table { width:100%; table-layout: fixed; border-spacing: 4px; border-collapse: separate; }
-    .cal-td { text-align:center; height:60px; border-radius:5px; border:1px solid #eee; vertical-align:middle; padding:0 !important; overflow:hidden; }
+    .cal-td { text-align:center; height:65px; border-radius:5px; border:1px solid #eee; vertical-align:middle; padding:0 !important; overflow:hidden; position:relative; }
     .split-container { display: flex; height: 100%; width: 100%; }
     .split-half { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; }
+    .day-num { position: absolute; top: 2px; width: 100%; text-align: center; font-size: 10px; z-index: 10; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -32,12 +33,12 @@ def get_data():
             data[col] = ""
     return data
 
-# --- CONFIGURAZIONE UTENTI E COLORI ---
+# --- CONFIGURAZIONE ---
 utenti_config = {
-    "Anita": {"pin": "1111", "color": "#FF4B4B"},   # Rosso
-    "Chiara": {"pin": "4444", "color": "#FFC0CB"},  # Rosa
-    "Lorenzo": {"pin": "1234", "color": "#1C83E1"}, # Blu
-    "Gianluca": {"pin": "1191", "color": "#28A745"} # Verde
+    "Anita": {"pin": "1111", "color": "#FF4B4B"},   
+    "Chiara": {"pin": "4444", "color": "#FFC0CB"},  
+    "Lorenzo": {"pin": "1234", "color": "#1C83E1"}, 
+    "Gianluca": {"pin": "1191", "color": "#28A745"} 
 }
 icone_case = {"LIMONE": "🏔️", "NOLI": "🏖️"}
 
@@ -60,6 +61,8 @@ if user != "-- Seleziona --" and password == utenti_config[user]["pin"]:
             casa_scelta = st.selectbox("Scegli la meta", ["NOLI", "LIMONE"])
             d_in = st.date_input("Check-in", value=datetime.today().date() + timedelta(days=1))
             d_out = st.date_input("Check-out", value=d_in + timedelta(days=1))
+            notti = (d_out - d_in).days
+            if notti > 0: st.info(f"🌙 Stai prenotando per **{notti}** notti.")
             note = st.text_area("Note")
             if st.button("🚀 INVIA RICHIESTA"):
                 nuova = pd.DataFrame([{
@@ -92,11 +95,10 @@ if user != "-- Seleziona --" and password == utenti_config[user]["pin"]:
                 df = df[df['Utente'] != user]
                 conn.update(worksheet="Prenotazioni", data=df); st.rerun()
 
-    # --- TAB 3: CALENDARIO (CON GESTIONE SOVRAPPOSIZIONI) ---
+    # --- TAB 3: CALENDARIO (FIX SOVRAPPOSIZIONI) ---
     with tab3:
         st.header("🗓️ Calendario Occupazione")
         
-        # Mappatura date: {data: [lista_prenotazioni]}
         occupied_dates = {}
         for _, r in df[df['Stato'] == "Confermata"].iterrows():
             try:
@@ -105,7 +107,9 @@ if user != "-- Seleziona --" and password == utenti_config[user]["pin"]:
                 curr = start
                 while curr <= end:
                     if curr not in occupied_dates: occupied_dates[curr] = []
-                    occupied_dates[curr].append({"user": r['Utente'], "casa": r['Casa']})
+                    # Evitiamo duplicati nella stessa cella
+                    if not any(p['user'] == r['Utente'] and p['casa'] == r['Casa'] for p in occupied_dates[curr]):
+                        occupied_dates[curr].append({"user": r['Utente'], "casa": r['Casa']})
                     curr += timedelta(days=1)
             except: continue
 
@@ -125,29 +129,28 @@ if user != "-- Seleziona --" and password == utenti_config[user]["pin"]:
             curr_col = first_wd
             for day in range(1, last_day + 1):
                 d_obj = month_to_show.replace(day=day)
-                cell_content = ""
+                content = ""
                 
                 if d_obj in occupied_dates:
                     preds = occupied_dates[d_obj]
                     if len(preds) == 1:
-                        # Una sola prenotazione
                         p = preds[0]
                         color = utenti_config.get(p['user'], {}).get("color", "#EEE")
                         icon = icone_case.get(p['casa'], "")
-                        cell_content = f"""<div style='background-color:{color}; color:white; height:100%; display:flex; flex-direction:column; justify-content:center;'>
-                                            <div style='font-size:10px;'>{day}</div><div>{icon}</div></div>"""
+                        content = f"""<div style='background-color:{color}; color:white; height:100%; display:flex; flex-direction:column; justify-content:center;'>
+                                      <div class='day-num'>{day}</div><div style='font-size:18px; margin-top:10px;'>{icon}</div></div>"""
                     else:
-                        # SOVRAPPOSIZIONE (Split verticale)
-                        cell_content = f"<div class='split-container'><div style='position:absolute; width:100%; font-size:10px; color:white; z-index:10; text-align:center;'>{day}</div>"
-                        for p in preds:
+                        # SOVRAPPOSIZIONE
+                        content = f"<div class='day-num' style='color:white;'>{day}</div><div class='split-container'>"
+                        for p in preds[:2]: # Massimo 2 per lo split
                             color = utenti_config.get(p['user'], {}).get("color", "#EEE")
                             icon = icone_case.get(p['casa'], "")
-                            cell_content += f"<div class='split-half' style='background-color:{color}; color:white;'>{icon}</div>"
-                        cell_content += "</div>"
+                            content += f"<div class='split-half' style='background-color:{color}; color:white; font-size:16px;'><div style='margin-top:10px;'>{icon}</div></div>"
+                        content += "</div>"
                 else:
-                    cell_content = f"<div style='color:#ccc; font-size:10px; padding-top:5px;'>{day}</div>"
+                    content = f"<div class='day-num' style='color:#ccc;'>{day}</div>"
 
-                html_cal += f"<td class='cal-td' style='position:relative;'>{cell_content}</td>"
+                html_cal += f"<td class='cal-td'>{content}</td>"
                 curr_col += 1
                 if curr_col > 6:
                     html_cal += "</tr><tr>"
@@ -159,18 +162,39 @@ if user != "-- Seleziona --" and password == utenti_config[user]["pin"]:
             st.markdown(html_cal, unsafe_allow_html=True)
             st.divider()
 
-    # --- TAB 4: STATISTICHE ---
+    # --- TAB 4: STATISTICHE (NUOVO LAYOUT) ---
     with tab4:
         st.header("📊 Statistiche")
         df_c = df[df['Stato'] == "Confermata"].copy()
+        
         if not df_c.empty:
             def g_calc(r):
-                try: return (datetime.strptime(r['Data_Fine'], '%d/%m/%Y') - datetime.strptime(r['Data_Inizio'], '%d/%m/%Y')).days
+                try: return (datetime.strptime(r['Data_Fine'], '%d/%m/%Y') - datetime.strptime(r['Data_Inizio'], '%d/%m/%Y')).days + 1
                 except: return 0
             df_c['GG'] = df_c.apply(g_calc, axis=1)
-            st.subheader("🏆 Re delle Vacanze")
-            for n, g in df_c.groupby('Utente')['GG'].sum().sort_values(ascending=False).items():
-                st.write(f"**{n}**: {g} giorni")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.subheader("🏆 Re delle Vacanze")
+                classifica = df_c.groupby('Utente')['GG'].sum().sort_values(ascending=False)
+                for n, g in classifica.items():
+                    st.write(f"**{n}**: {g} giorni totali")
+
+            st.divider()
+            st.subheader("🏠 Occupazione per Casa")
+            stats_casa = df_c.groupby('Casa')['GG'].sum()
+            
+            c_noli, c_limo = st.columns(2)
+            with c_noli:
+                if os.path.exists("Noli.jpg"): st.image("Noli.jpg", width=200)
+                g_noli = stats_casa.get("NOLI", 0)
+                st.metric("NOLI 🏖️", f"{g_noli} giorni")
+            with c_limo:
+                if os.path.exists("Limone.jpg"): st.image("Limone.jpg", width=200)
+                g_limo = stats_casa.get("LIMONE", 0)
+                st.metric("LIMONE 🏔️", f"{g_limo} giorni")
+        else:
+            st.info("Nessuna prenotazione confermata per le statistiche.")
 
 else:
     st.title("🏠 Family Booking"); st.info("Esegui il login nella sidebar.")
