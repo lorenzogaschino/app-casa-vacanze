@@ -23,8 +23,8 @@ st.markdown("""
     /* Legenda */
     .legenda-item { display: inline-block; padding: 2px 8px; border-radius: 4px; margin: 2px; color: white; font-size: 11px; font-weight: bold; }
     
-    /* Ottimizzazione immagini mobile */
-    .stImage > img { border-radius: 8px; }
+    /* Login Box */
+    .login-box { padding: 20px; border-radius: 10px; border: 1px solid #eee; background-color: #f9f9f9; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -46,31 +46,51 @@ utenti_config = {
 }
 icone_case = {"LIMONE": "🏔️", "NOLI": "🏖️"}
 
-# --- LOGIN ---
-st.sidebar.title("🔐 Accesso")
-user = st.sidebar.selectbox("Chi sei?", ["-- Seleziona --"] + list(utenti_config.keys()))
-password = st.sidebar.text_input("PIN", type="password")
+# --- GESTIONE LOGIN (SPOSTATO DALLA SIDEBAR) ---
+if 'authenticated' not in st.session_state:
+    st.session_state['authenticated'] = False
 
-if user != "-- Seleziona --" and password == utenti_config[user]["pin"]:
+if not st.session_state['authenticated']:
+    st.title("🏠 Family Booking")
+    st.subheader("🔐 Accesso")
+    with st.container():
+        user_input = st.selectbox("Chi sei?", ["-- Seleziona --"] + list(utenti_config.keys()))
+        pass_input = st.text_input("Inserisci il tuo PIN", type="password")
+        
+        if st.button("Accedi"):
+            if user_input != "-- Seleziona --" and pass_input == utenti_config[user_input]["pin"]:
+                st.session_state['authenticated'] = True
+                st.session_state['user'] = user_input
+                st.rerun()
+            else:
+                st.error("PIN errato o utente non selezionato")
+else:
+    # --- APP DOPO IL LOGIN ---
+    user = st.session_state['user']
     df = get_data()
     conn = st.connection("gsheets", type=GSheetsConnection)
     
+    # Pulsante Logout in alto a destra (opzionale)
+    col_tit, col_log = st.columns([5,1])
+    with col_tit:
+        st.write(f"Ciao **{user}**! 👋")
+    with col_log:
+        if st.button("Logout"):
+            st.session_state['authenticated'] = False
+            st.rerun()
+
     tab1, tab2, tab3, tab4 = st.tabs(["📅 PRENOTA", "📊 GESTIONE", "🗓️ CALENDARIO", "📈 STATISTICHE"])
 
-    # --- TAB 1: PRENOTA (OTTIMIZZATO MOBILE) ---
+    # --- TAB 1: PRENOTA ---
     with tab1:
         st.header("Nuova Prenotazione")
         oggi = datetime.now().date()
-        
-        # Selezione meta e foto immediata
         casa_scelta = st.selectbox("Scegli la meta", ["NOLI", "LIMONE"])
         
-        # Foto sotto la tendina, ottimizzata per mobile
         f_nome = "Noli.jpg" if casa_scelta == "NOLI" else "Limone.jpg"
         if os.path.exists(f_nome):
-            st.image(f_nome, width=280) # Larghezza fissa per evitare foto giganti su mobile
+            st.image(f_nome, width=280)
 
-        # Avvisi disponibilità
         p_casa = df[df['Casa'] == casa_scelta].copy()
         g_conf, g_att = [], []
         for _, r in p_casa.iterrows():
@@ -81,7 +101,6 @@ if user != "-- Seleziona --" and password == utenti_config[user]["pin"]:
         if g_conf: st.error(f"🚫 **OCCUPATO:** {', '.join(g_conf)}")
         if g_att: st.warning(f"⏳ **RICHIESTO:** {', '.join(g_att)}")
 
-        # Input date
         d_in = st.date_input("Check-in", value=oggi + timedelta(days=1), min_value=oggi)
         d_out = st.date_input("Check-out", value=d_in + timedelta(days=1), min_value=d_in + timedelta(days=1))
         
@@ -214,6 +233,3 @@ if user != "-- Seleziona --" and password == utenti_config[user]["pin"]:
                              "Totale": st.column_config.NumberColumn("Totale", width="small")
                          }, 
                          hide_index=True)
-
-else:
-    st.title("🏠 Family Booking"); st.info("Inserisci il PIN per accedere.")
