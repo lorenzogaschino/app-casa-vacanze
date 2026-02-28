@@ -69,75 +69,68 @@ else:
   # --- TAB 1: PRENOTA ---
     with tabs[0]:
         st.header("Nuova Prenotazione")
-        casa_scelta = st.selectbox("Scegli la meta", ["NOLI", "LIMONE"])
+        casa_scelta = st.selectbox("Scegli la meta", ["NOLI", "LIMONE"], key="select_casa")
         
-        # FIX FOTO: Forza il check del case-sensitive per i file OS
+        # Foto
         img_path = f"{casa_scelta.capitalize()}.jpg"
         if os.path.exists(img_path):
             st.image(img_path, width=350)
-        else:
-            # Fallback se il file è tutto minuscolo (noli.jpg)
-            img_path_low = f"{casa_scelta.lower()}.jpg"
-            if os.path.exists(img_path_low):
-                st.image(img_path_low, width=350)
         
         st.subheader("Stato attuale")
         p_casa = df[df['Casa'] == casa_scelta].copy()
-        if not p_casa.empty:
-            for _, r in p_casa.iterrows():
-                info = f"{r['Casa']} - {r['Data_Inizio']} - {r['Data_Fine']} - {r['Utente']}"
-                color = "#FF4B4B" if r['Stato'] == "Confermata" else "#FFD700"
-                label = "🔴 CONFERMATA" if r['Stato'] == "Confermata" else "⏳ IN ATTESA"
-                st.markdown(f"<span style='color:{color}; font-weight:bold;'>{label}:</span> {info}", unsafe_allow_html=True)
+        for _, r in p_casa.iterrows():
+            info = f"{r['Casa']} - {r['Data_Inizio']} - {r['Data_Fine']} - {r['Utente']}"
+            col = "#FF4B4B" if r['Stato'] == "Confermata" else "#FFD700"
+            st.markdown(f"<span style='color:{col}; font-weight:bold;'>{'🔴' if r['Stato']=='Confermata' else '⏳'}:</span> {info}", unsafe_allow_html=True)
 
         with st.form("booking_form"):
             oggi = datetime.now().date()
-            # 1. Input data inizio
+            # Usiamo min_value solo per impedire date passate, non per vincolare Check-out a Check-in in tempo reale
             d_in = st.date_input("Check-in", value=oggi + timedelta(days=1), min_value=oggi)
-            
-            # 2. Input data fine (il vincolo min_value impedisce la selezione di date precedenti a d_in)
-            d_out = st.date_input("Check-out", value=d_in + timedelta(days=1), min_value=d_in + timedelta(days=1))
-            
+            d_out = st.date_input("Check-out", value=d_in + timedelta(days=1))
             note = st.text_area("Note")
             
             submit = st.form_submit_button("🚀 INVIA PRENOTAZIONE")
             
             if submit:
-                # LOGICA SOVRAPPOSIZIONE
-                sovrapposizione = False
-                for _, r in p_casa.iterrows():
-                    s_ex, e_ex = parse_date(r['Data_Inizio']), parse_date(r['Data_Fine'])
-                    if s_ex and e_ex:
-                        # Un periodo sovrappone l'altro se (Inizio1 < Fine2) AND (Inizio2 < Fine1)
-                        if (d_in < e_ex) and (s_ex < d_out):
-                            sovrapposizione = True
-                            break
-                
+                # 1. VALIDAZIONE LOGICA DATE
                 if d_out <= d_in:
-                    st.error("❌ La data di Check-out deve essere successiva al Check-in")
-                elif sovrapposizione:
-                    st.error("⚠️ Errore: Le date sono già occupate da un'altra prenotazione (Confermata o In Attesa)!")
+                    st.error(f"❌ Errore: Il Check-out ({d_out.strftime('%d/%m/%Y')}) non può essere precedente o uguale al Check-in ({d_in.strftime('%d/%m/%Y')}).")
+                
                 else:
-                    nuova = pd.DataFrame([{
-                        "ID": str(datetime.now().timestamp()), 
-                        "Casa": casa_scelta, 
-                        "Utente": st.session_state['user_name'],
-                        "Data_Inizio": d_in.strftime('%d/%m/%Y'), 
-                        "Data_Fine": d_out.strftime('%d/%m/%Y'),
-                        "Stato": "In Attesa", 
-                        "Voti_Ok": "", 
-                        "Note": note
-                    }])
-                    # Aggiornamento GSHEETS
-                    try:
-                        updated_df = pd.concat([df, nuova], ignore_index=True)
-                        conn.update(worksheet="Prenotazioni", data=updated_df)
+                    # 2. CONTROLLO SOVRAPPOSIZIONE (Muro di gomma)
+                    conflitto = False
+                    prenotazione_conflittuale = ""
+                    
+                    for _, r in p_casa.iterrows():
+                        s_ex, e_ex = parse_date(r['Data_Inizio']), parse_date(r['Data_Fine'])
+                        if s_ex and e_ex:
+                            # Formula standard: (Inizio1 < Fine2) AND (Inizio2 < Fine1)
+                            if (d_in < e_ex) and (s_ex < d_out):
+                                conflitto = True
+                                prenotazione_conflittuale = f"{r['Data_Inizio']} - {r['Data_Fine']} ({r['Utente']})"
+                                break
+                    
+                    if conflitto:
+                        # BLOCCO TOTALE: Messaggio d'errore e stop.
+                        st.error(f"⚠️ PRENOTAZIONE NEGATA: Le date {d_in.strftime('%d/%m/%Y')} - {d_out.strftime('%d/%m/%Y')} si sovrappongono con una prenotazione esistente: {prenotazione_conflittuale}")
+                    else:
+                        # 3. PROCEDI SOLO SE TUTTO OK
+                        nuova = pd.DataFrame([{
+                            "ID": str(datetime.now().timestamp()), 
+                            "Casa": casa_scelta, 
+                            "Utente": st.session_state['user_name'],
+                            "Data_Inizio": d_in.strftime('%d/%m/%Y'), 
+                            "Data_Fine": d_out.strftime('%d/%m/%Y'),
+                            "Stato": "In Attesa", 
+                            "Voti_Ok": "", 
+                            "Note": note
+                        }])
+                        conn.update(worksheet="Prenotazioni", data=pd.concat([df, nuova], ignore_index=True))
                         st.balloons()
-                        st.success("✅ Richiesta inviata con successo!")
+                        st.success("✅ Prenotazione inviata correttamente!")
                         time.sleep(1)
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"Errore durante il salvataggio: {e}")
     # --- TAB 2: GESTIONE ---
     with tabs[1]:
         st.header("Gestione Prenotazioni")
