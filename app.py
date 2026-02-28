@@ -299,72 +299,90 @@ else:
                         html += "<td></td>" * (7 - c_col)
                         
                     st.markdown(html + "</tr></table>", unsafe_allow_html=True)
-    # --- TAB 4: STATISTICHE ---
+   # --- TAB 4: STATISTICHE ---
     with tabs[3]:
         st.header("Analisi Occupazione 2026")
         
-        # Funzione di utilità per calcolare i giorni tra due date
+        # CSS Iniettato Ottimizzato
+        st.markdown("""
+            <style>
+                /* Forza colonne affiancate su mobile */
+                [data-testid="column"] {
+                    width: 48% !important;
+                    flex: 1 1 48% !important;
+                    min-width: 48% !important;
+                }
+                /* Impedisce alle immagini di deformarsi */
+                [data-testid="stImage"] img {
+                    object-fit: cover;
+                    border-radius: 10px;
+                }
+                /* Compattazione tabella per schermi stretti */
+                .stTable {
+                    font-size: 13px !important;
+                }
+                table {
+                    width: 100% !important;
+                }
+                th {
+                    text-align: left !important;
+                }
+                td {
+                    white-space: nowrap; /* Nome su una riga */
+                    padding: 4px 8px !important;
+                }
+            </style>
+        """, unsafe_allow_html=True)
+
         def calc_days(row):
-            # Usiamo stringhe e strip per evitare crash se il foglio Google ha celle formattate male
             s = parse_date(str(row['Data_Inizio']).strip())
             e = parse_date(str(row['Data_Fine']).strip())
             return (e - s).days if s and e else 0
 
-        # Creiamo una copia di lavoro e calcoliamo i GG per ogni riga
         df_stats = df.copy()
         df_stats['GG'] = df_stats.apply(calc_days, axis=1)
         
-        # --- LAYOUT SUPERIORE: FOTO E METRICHE ---
+        # --- LAYOUT SUPERIORE: FOTO AFFIANCATE ---
         c1, c2 = st.columns(2)
         
         with c1:
-            # Controllo foto Noli (case-insensitive fallback)
             img_noli = "Noli.jpg" if os.path.exists("Noli.jpg") else "noli.jpg"
             if os.path.exists(img_noli):
                 st.image(img_noli, use_container_width=True)
-            st.subheader("NOLI 🏖️")
-            # Somma giorni confermati per Noli
+            st.caption("NOLI 🏖️")
             noli_conf = df_stats[(df_stats['Casa'] == 'NOLI') & (df_stats['Stato'] == 'Confermata')]['GG'].sum()
-            st.metric("Giorni Confermati", f"{int(noli_conf)} gg")
+            st.markdown(f"**{int(noli_conf)} gg**")
             
         with c2:
-            # Controllo foto Limone (case-insensitive fallback)
             img_limone = "Limone.jpg" if os.path.exists("Limone.jpg") else "limone.jpg"
             if os.path.exists(img_limone):
                 st.image(img_limone, use_container_width=True)
-            st.subheader("LIMONE 🏔️")
-            # Somma giorni confermati per Limone
+            st.caption("LIMONE 🏔️")
             limone_conf = df_stats[(df_stats['Casa'] == 'LIMONE') & (df_stats['Stato'] == 'Confermata')]['GG'].sum()
-            st.metric("Giorni Confermati", f"{int(limone_conf)} gg")
+            st.markdown(f"**{int(limone_conf)} gg**")
             
         st.divider()
         
-        # --- TABELLA RIEPILOGO PER UTENTE ---
-        st.subheader("Riepilogo Utilizzo per Utente")
+        # --- TABELLA RIEPILOGO ---
+        st.subheader("Riepilogo Utente")
         
-        # 1. GG Confermati (Solo stato 'Confermata')
+        # Aggregazione dati
         conf_u = df_stats[df_stats['Stato'] == 'Confermata'].groupby('Utente')['GG'].sum().reset_index()
-        conf_u.columns = ['Utente', 'Giorni Confermati (🔴)']
+        conf_u.columns = ['Utente', 'Conf.🔴']
         
-        # 2. GG Richiesti (Tutto ciò che NON è 'Confermata')
         rich_u = df_stats[df_stats['Stato'] != 'Confermata'].groupby('Utente')['GG'].sum().reset_index()
-        rich_u.columns = ['Utente', 'Giorni Richiesti (⏳)']
+        rich_u.columns = ['Utente', 'Rich.⏳']
         
-        # 3. Costruzione Tabella Finale
-        # Partiamo dalla lista ufficiale degli utenti (utenti_cfg) per non dimenticare nessuno
+        # Merge completo su tutti gli utenti configurati
         tutti_utenti = pd.DataFrame({'Utente': list(utenti_cfg.keys())})
-        
-        # Merge dei dati
         final_stats = pd.merge(tutti_utenti, conf_u, on='Utente', how='left')
-        final_stats = pd.merge(final_stats, rich_u, on='Utente', how='left')
+        final_stats = pd.merge(final_stats, rich_u, on='Utente', how='left').fillna(0)
         
-        # Pulizia dati per la visualizzazione (No NaN, solo interi)
-        final_stats = final_stats.fillna(0)
-        final_stats['Giorni Confermati (🔴)'] = final_stats['Giorni Confermati (🔴)'].astype(int)
-        final_stats['Giorni Richiesti (⏳)'] = final_stats['Giorni Richiesti (⏳)'].astype(int)
+        # Formattazione finale
+        final_stats['Conf.🔴'] = final_stats['Conf.🔴'].astype(int)
+        final_stats['Rich.⏳'] = final_stats['Rich.⏳'].astype(int)
         
-        # Visualizzazione Tabella ordinata
-        st.table(final_stats.sort_values(by='Giorni Confermati (🔴)', ascending=False))
+        # Visualizzazione ordinata
+        st.table(final_stats.sort_values(by='Conf.🔴', ascending=False))
         
-        # Nota di chiusura per evitare dubbi sui giorni "spariti"
-        st.info("💡 Nota: I giorni sono calcolati come (Data Fine - Data Inizio). Se una prenotazione è 1-3 Marzo, contano 2 giorni di occupazione.")
+        st.info("💡 Giorni = Fine - Inizio")
