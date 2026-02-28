@@ -167,24 +167,16 @@ else:
                             st.error(f"Errore tecnico durante il salvataggio: {e}")
 # --- TAB 2: GESTIONE ---
     with tabs[1]:
-        # CSS Modernizzato: Font ridotto e interlinea corretta per mobile
+        # CSS per font ridotto e ariosità su mobile
         st.markdown("""
             <style>
-                /* Riduce font tabella */
-                .stDataFrame div[data-testid="stTable"] { font-size: 12px !important; }
-                
-                /* Riduce font e compatta i bottoni */
+                .stDataFrame { font-size: 12px !important; }
                 div.stButton > button { 
                     font-size: 0.85rem !important; 
                     padding: 5px 10px !important; 
-                    border-radius: 5px;
+                    width: 100%; /* Forza i bottoni a occupare tutta la larghezza */
                 }
-                
-                /* Riduce lo spazio vuoto superiore su mobile */
                 [data-testid="stAppViewBlockContainer"] { padding-top: 1rem !important; }
-                
-                /* Forza interlinea per le scritte in eliminazione */
-                .stWrite { line-height: 1.6 !important; font-size: 0.9rem !important; }
             </style>
         """, unsafe_allow_html=True)
 
@@ -193,7 +185,6 @@ else:
         # 1. VISUALIZZAZIONE DATABASE COMPLETO
         st.subheader("Tutte le Prenotazioni")
         df_gestione = get_data() 
-        # Mostriamo le colonne principali per non affollare lo schermo
         st.dataframe(
             df_gestione[['Casa', 'Utente', 'Data_Inizio', 'Data_Fine', 'Stato', 'Note']], 
             use_container_width=True,
@@ -210,10 +201,11 @@ else:
             st.info("Nessuna richiesta in sospeso.")
         else:
             for _, r in attesa.iterrows():
-                # Layout pulito: Icona casa e Utente in grassetto
+                # Info testuale sopra
                 st.markdown(f"🏠 **{r['Casa']}** | 👤 **{r['Utente']}**")
                 st.caption(f"📅 {r['Data_Inizio']} - {r['Data_Fine']} | 📝 {r['Note']}")
                 
+                # Bottone sotto (full-width da CSS)
                 if st.button(f"✅ CONFERMA PRENOTAZIONE", key=f"conf_{r['ID']}"):
                     df_ultimo = get_data()
                     if r['ID'] in df_ultimo['ID'].values:
@@ -224,7 +216,7 @@ else:
                         st.rerun()
                 st.divider()
 
-       # 3. SEZIONE ELIMINAZIONE (Uguale a Approva)
+        # 3. SEZIONE ELIMINAZIONE (ORA UGUALE A APPROVA)
         st.subheader("Elimina le tue prenotazioni")
         mie_prenotazioni = df_gestione[df_gestione['Utente'] == st.session_state['user_name']]
         
@@ -232,13 +224,14 @@ else:
             st.write("Non hai prenotazioni attive da eliminare.")
         else:
             for _, r in mie_prenotazioni.iterrows():
-                # Struttura identica a Approva: Testo sopra
+                # Struttura identica: Info testuale sopra
                 st.markdown(f"🏠 **{r['Casa']}** | 📅 {r['Data_Inizio']} - {r['Data_Fine']}")
                 st.caption(f"Stato attuale: {r['Stato']}")
                 
-                # Bottone sotto a tutta larghezza
+                # Bottone sotto (full-width da CSS)
                 if st.button(f"🗑️ ELIMINA PRENOTAZIONE", key=f"del_{r['ID']}"):
                     df_ultimo = get_data()
+                    # Eliminiamo la riga filtrando per ID
                     df_nuovo = df_ultimo[df_ultimo['ID'] != r['ID']]
                     conn.update(worksheet="Prenotazioni", data=df_nuovo)
                     st.warning("Prenotazione eliminata.")
