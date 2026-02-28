@@ -66,16 +66,17 @@ else:
 
     tabs = st.tabs(["📅 PRENOTA", "📊 GESTIONE", "🗓️ CALENDARIO", "📈 STATISTICHE"])
 
-  # --- TAB 1: PRENOTA ---
+ # --- TAB 1: PRENOTA ---
     with tabs[0]:
         st.header("Nuova Prenotazione")
-        casa_scelta = st.selectbox("Scegli la meta", ["NOLI", "LIMONE"], key="select_casa")
         
-        # 1. Ricarico dati fresco per la visualizzazione dello Stato Attuale
-        # In questo modo l'utente vede SEMPRE l'ultima situazione reale prima di compilare
+        # 1. Caricamento dati fresco per la visualizzazione iniziale
+        # Usiamo get_data() con ttl=0 per essere sicuri di vedere l'ultimo stato reale
         df_fresco = get_data()
         
-        # Gestione Foto
+        casa_scelta = st.selectbox("Scegli la meta", ["NOLI", "LIMONE"], key="select_casa")
+        
+        # Gestione Foto (Check robusto maiuscole/minuscole)
         img_path = f"{casa_scelta.capitalize()}.jpg"
         if os.path.exists(img_path):
             st.image(img_path, width=350)
@@ -87,55 +88,63 @@ else:
             st.info("Nessuna prenotazione presente per questa casa.")
         else:
             for _, r in p_casa_visualizzazione.iterrows():
+                # Definizione Etichette chirurgica
+                if str(r['Stato']).strip().lower() == "confermata":
+                    label = "CONFERMATA"
+                    color = "#FF4B4B" # Rosso
+                    icona = "🔴"
+                else:
+                    label = "RICHIESTA"
+                    color = "#FFD700" # Giallo/Oro
+                    icona = "⏳"
+                
                 info = f"{r['Casa']} - {r['Data_Inizio']} - {r['Data_Fine']} - {r['Utente']}"
-                col = "#FF4B4B" if r['Stato'] == "Confermata" else "#FFD700"
-                icona = '🔴' if r['Stato']=='Confermata' else '⏳'
-                st.markdown(f"<span style='color:{col}; font-weight:bold;'>{icona}:</span> {info}", unsafe_allow_html=True)
+                st.markdown(f"<span style='color:{color}; font-weight:bold;'>{icona} {label}:</span> {info}", unsafe_allow_html=True)
 
+        # FORM DI PRENOTAZIONE
         with st.form("booking_form", clear_on_submit=False):
             oggi = datetime.now().date()
             
-            # Input stabili
+            # Input LIBERI: Nessun min_value dinamico per evitare che Streamlit sposti le date da solo
             d_in = st.date_input("Check-in", value=oggi + timedelta(days=1))
             d_out = st.date_input("Check-out", value=oggi + timedelta(days=2))
-            note = st.text_area("Note")
+            note = st.text_area("Note (opzionale)")
             
             submit = st.form_submit_button("🚀 INVIA PRENOTAZIONE")
             
             if submit:
-                # --- SICUREZZA 1: Ricarichiamo di nuovo i dati (Protezione anti-millisecondo) ---
+                # --- SICUREZZA 1: Ricarichiamo i dati REALI per il controllo finale ---
                 df_reale = get_data() 
                 p_casa_reale = df_reale[df_reale['Casa'] == casa_scelta]
 
-                # --- SICUREZZA 2: Validazione Formale ---
+                # --- SICUREZZA 2: Validazione Logica ---
                 if d_in < oggi:
-                    st.error(f"❌ Errore: Non puoi prenotare date passate.")
+                    st.error(f"❌ Errore: Non puoi prenotare nel passato (Check-in: {d_in.strftime('%d/%m/%Y')})")
                 elif d_out <= d_in:
-                    st.error(f"❌ Errore: Il Check-out deve essere almeno un giorno dopo il Check-in.")
+                    st.error(f"❌ Errore: Il Check-out ({d_out.strftime('%d/%m/%Y')}) deve essere successivo al Check-in.")
+                
                 else:
-                    # --- SICUREZZA 3: Controllo Sovrapposizione ---
+                    # --- SICUREZZA 3: Controllo Sovrapposizione Matematico ---
                     conflitto = False
                     dettaglio_conflitto = ""
                     
                     for _, r in p_casa_reale.iterrows():
-                        # Usiamo .strip() per evitare errori da spazi vuoti nel database
+                        # Pulizia stringhe date dal DB
                         s_ex = parse_date(str(r['Data_Inizio']).strip())
                         e_ex = parse_date(str(r['Data_Fine']).strip())
                         
                         if s_ex and e_ex:
-                            # Formula di overlap: (Inizio_Nuovo < Fine_Esistente) AND (Fine_Nuovo > Inizio_Esistente)
+                            # Formula: (Inizio_Nuovo < Fine_Esistente) AND (Fine_Nuovo > Inizio_Esistente)
                             if (d_in < e_ex) and (d_out > s_ex):
                                 conflitto = True
                                 dettaglio_conflitto = f"{r['Data_Inizio']} - {r['Data_Fine']} ({r['Utente']})"
                                 break
-                        else:
-                            # Se incontriamo una data corrotta nel DB, per sicurezza blocchiamo tutto
-                            st.warning(f"Rilevata data non valida nel database per {r['Utente']}. Controlla il foglio Google.")
                     
                     if conflitto:
-                        st.error(f"⚠️ BLOCCATO: Le date scelte si sovrappongono con: {dettaglio_conflitto}")
+                        # BLOCCO TOTALE: Il sistema non "aggiusta" nulla, semplicemente rifiuta.
+                        st.error(f"⚠️ PRENOTAZIONE NEGATA: Le date scelte si sovrappongono con: {dettaglio_conflitto}")
                     else:
-                        # --- SICUREZZA 4: Scrittura ---
+                        # --- SICUREZZA 4: Scrittura finale su Google Sheets ---
                         try:
                             nuova_riga = pd.DataFrame([{
                                 "ID": str(datetime.now().timestamp()), 
@@ -148,16 +157,16 @@ else:
                                 "Note": note
                             }])
                             
-                            df_finale = pd.concat([df_reale, nuova_riga], ignore_index=True)
-                            conn.update(worksheet="Prenotazioni", data=df_finale)
+                            # Concateniamo i nuovi dati a quelli appena scaricati dal server
+                            df_aggiornato = pd.concat([df_reale, nuova_riga], ignore_index=True)
+                            conn.update(worksheet="Prenotazioni", data=df_aggiornato)
                             
                             st.balloons()
-                            st.success("✅ Prenotazione registrata correttamente!")
-                            # Piccolo delay per permettere a GSheets di propagare il dato
+                            st.success("✅ Richiesta inviata con successo!")
                             time.sleep(1)
                             st.rerun()
                         except Exception as e:
-                            st.error(f"Errore tecnico critico: {e}")
+                            st.error(f"Errore tecnico durante il salvataggio: {e}")
     # --- TAB 2: GESTIONE ---
     with tabs[1]:
         st.header("Gestione Prenotazioni")
