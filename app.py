@@ -374,7 +374,7 @@ else:
         final_stats = pd.merge(tutti_utenti, conf_u, on='Utente', how='left')
         final_stats = pd.merge(final_stats, rich_u, on='Utente', how='left').fillna(0)
         
-        final_stats['Conf.🔴'] = final_stats['Conf.🔴'].astype(int)
-        final_stats['Rich.⏳'] = final_stats['Rich.⏳'].astype(int)
+        final_stats['Conf.🔴'] = final_stats['Confermati🔴'].astype(int)
+        final_stats['Rich.⏳'] = final_stats['Richiesti⏳'].astype(int)
         
         st.table(final_stats.sort_values(by='Conf.🔴', ascending=False))
