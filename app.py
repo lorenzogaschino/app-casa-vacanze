@@ -89,28 +89,61 @@ else:
     tabs = st.tabs(["📅 PRENOTA", "📊 GESTIONE", "🗓️ CALENDARIO", "📈 STATISTICHE"])
 
     # --- TAB 1: PRENOTA ---
-    with tabs[0]:
+   with tabs[0]:
         st.header("Nuova Prenotazione")
-        casa_scelta = st.selectbox("Scegli la meta", ["NOLI", "LIMONE"], key="select_casa")
         
+        # Selezione Meta con Foto (Ripristinate)
+        casa_scelta = st.selectbox("Scegli la meta", ["NOLI", "LIMONE"], key="select_casa")
+        if casa_scelta == "NOLI":
+            st.image("https://allaboutitaly.com/wp-content/uploads/2018/06/Noli.jpg", width=300)
+        else:
+            st.image("https://www.limonepiemonte.it/images/limone-piemonte-inverno.jpg", width=300)
+
+        # --- SEZIONE STATO ATTUALE (Ripristinata da Screenshot) ---
+        st.subheader("Stato attuale")
+        if not df.empty:
+            for _, r in df.iterrows():
+                # Calcolo voti per determinare il colore
+                v_str = str(r.get('Voti_Ok', ""))
+                voti_count = len([v for v in v_str.split(',') if v.strip()])
+                
+                # Definizione Stile: Giallo (Richiesta) o Rosso (Confermata)
+                if voti_count >= 3:
+                    label = "🔴 CONFERMATA:"
+                    color = "#FF4B4B"
+                else:
+                    label = "⏳ RICHIESTA:"
+                    color = "#FFD700"
+                
+                # Stringa come da screenshot: CASA - Data_Inizio - Data_Fine - Utente
+                testo_prenotazione = f"{label} {r['Casa']} - {r['Data_Inizio']} - {r['Data_Fine']} - {r['Utente']}"
+                st.markdown(f"<div style='color:{color}; font-weight:bold; font-size:14px; margin-bottom:5px;'>{testo_prenotazione}</div>", unsafe_allow_html=True)
+
+        # --- FORM DI PRENOTAZIONE ---
         with st.form("booking_form"):
             oggi = datetime.now().date()
             d_in = st.date_input("Check-in", value=oggi + timedelta(days=1))
             d_out = st.date_input("Check-out", value=oggi + timedelta(days=2))
-            note = st.text_area("Note (opzionale)")
+            note = st.text_area("Note")
             submit = st.form_submit_button("🚀 INVIA PRENOTAZIONE")
             
             if submit:
+                # Logica Conflitti (Senza libertà: blocco e indicazione date)
                 df_reale = get_data()
-                conflitto = False
+                conflitto_trovato = None
+                
                 p_casa = df_reale[df_reale['Casa'] == casa_scelta]
                 for _, r in p_casa.iterrows():
                     s_ex, e_ex = parse_date(r['Data_Inizio']), parse_date(r['Data_Fine'])
                     if s_ex and e_ex and (d_in < e_ex) and (d_out > s_ex):
-                        conflitto = True; break
+                        conflitto_trovato = r
+                        break
                 
-                if d_out <= d_in: st.error("Errore date")
-                elif conflitto: st.error("Date già occupate!")
+                if d_out <= d_in:
+                    st.error("Errore: La data di fine deve essere successiva a quella di inizio.")
+                elif conflitto_trovato is not None:
+                    # Messaggio di errore rosso con dettagli del conflitto
+                    st.error(f"❌ CONFLITTO DATE: La casa è già occupata dal {conflitto_trovato['Data_Inizio']} al {conflitto_trovato['Data_Fine']} da {conflitto_trovato['Utente']}.")
                 else:
                     nuova_riga = pd.DataFrame([{
                         "ID": str(datetime.now().timestamp()), 
@@ -121,10 +154,9 @@ else:
                         "Stato": "In Attesa", "Voti_Ok": "", "Note": note
                     }])
                     conn.update(worksheet="Prenotazioni", data=pd.concat([df_reale, nuova_riga], ignore_index=True))
-                    st.success("Inviata!")
+                    st.success("Prenotazione inviata con successo!")
                     time.sleep(1)
                     st.rerun()
-
     # --- TAB 2: GESTIONE (Logica Originale Ripristinata) ---
     with tabs[1]:
         st.header("Gestione e Approvazioni")
@@ -229,25 +261,31 @@ else:
                     st.markdown(html + "</tr></table>", unsafe_allow_html=True)
 
     # --- TAB 4: STATISTICHE (Logica Originale Ripristinata) ---
-    with tabs[3]:
+   with tabs[3]:
         st.header("Analisi Occupazione 2026")
+        
+        # Calcolo GG (Logica originale)
         def calc_gg(row):
             s, e = parse_date(row['Data_Inizio']), parse_date(row['Data_Fine'])
             return (e - s).days if s and e else 0
-        df_st = df_gest.copy()
+        df_st = df.copy()
         df_st['GG'] = df_st.apply(calc_gg, axis=1)
         
+        # Metriche con Foto
         c1, c2 = st.columns(2)
         with c1:
-            n_gg = df_st[(df_st['Casa'] == 'NOLI') & (df_st['Stato_Reale'] == 'Confermata')]['GG'].sum()
-            st.metric("NOLI 🏖️", f"{int(n_gg)} gg")
+            st.subheader("NOLI 🏖️")
+            st.image("https://allaboutitaly.com/wp-content/uploads/2018/06/Noli.jpg", use_container_width=True)
+            n_gg = df_st[(df_st['Casa'] == 'NOLI') & (df_st['Stato'] == 'Confermata')]['GG'].sum()
+            st.metric("Giorni totali confermati", f"{int(n_gg)} gg")
+            
         with c2:
-            l_gg = df_st[(df_st['Casa'] == 'LIMONE') & (df_st['Stato_Reale'] == 'Confermata')]['GG'].sum()
-            st.metric("LIMONE 🏔️", f"{int(l_gg)} gg")
+            st.subheader("LIMONE 🏔️")
+            st.image("https://www.limonepiemonte.it/images/limone-piemonte-inverno.jpg", use_container_width=True)
+            l_gg = df_st[(df_st['Casa'] == 'LIMONE') & (df_st['Stato'] == 'Confermata')]['GG'].sum()
+            st.metric("Giorni totali confermati", f"{int(l_gg)} gg")
         
         st.divider()
-        st.subheader("Riepilogo Utente")
-        conf = df_st[df_st['Stato_Reale'] == 'Confermata'].groupby('Utente')['GG'].sum()
-        rich = df_st[df_st['Stato_Reale'] != 'Confermata'].groupby('Utente')['GG'].sum()
-        res_st = pd.DataFrame({'Utente': utenti_cfg.keys()}).merge(conf.rename('Confermati 🔴'), on='Utente', how='left').merge(rich.rename('Richiesti ⏳'), on='Utente', how='left').fillna(0)
-        st.table(res_st.sort_values(by='Confermati 🔴', ascending=False))
+        st.subheader("Classifica Utenti (Giorni Confermati)")
+        res_st = df_st[df_st['Stato'] == 'Confermata'].groupby('Utente')['GG'].sum().sort_values(ascending=False).reset_index()
+        st.table(res_st)
