@@ -66,37 +66,39 @@ else:
 
     tabs = st.tabs(["📅 PRENOTA", "📊 GESTIONE", "🗓️ CALENDARIO", "📈 STATISTICHE"])
 
-    # --- TAB 1: PRENOTA ---
+   # --- TAB 1: PRENOTA (Sostituisci tutto il contenuto di with tabs[0]:) ---
     with tabs[0]:
         st.header("Nuova Prenotazione")
         casa_scelta = st.selectbox("Scegli la meta", ["NOLI", "LIMONE"])
-        img_path = f"{casa_scelta.capitalize()}.jpg"
-        if os.path.exists(img_path): st.image(img_path, width=300)
         
         st.subheader("Stato attuale")
         p_casa = df[df['Casa'] == casa_scelta].copy()
         if not p_casa.empty:
             for _, r in p_casa.iterrows():
                 info = f"{r['Casa']} - {r['Data_Inizio']} - {r['Data_Fine']} - {r['Utente']}"
-                if r['Stato'] == "Confermata":
-                    st.markdown(f"<span style='color:#FF4B4B; font-weight:bold;'>🔴 CONFERMATA:</span> {info}", unsafe_allow_html=True)
-                else:
-                    st.markdown(f"<span style='color:#FFD700; font-weight:bold;'>⏳ IN ATTESA:</span> {info}", unsafe_allow_html=True)
+                color = "#FF4B4B" if r['Stato'] == "Confermata" else "#FFD700"
+                label = "🔴 CONFERMATA" if r['Stato'] == "Confermata" else "⏳ IN ATTESA"
+                st.markdown(f"<span style='color:{color}; font-weight:bold;'>{label}:</span> {info}", unsafe_allow_html=True)
 
         with st.form("booking_form"):
             oggi = datetime.now().date()
             d_in = st.date_input("Check-in", value=oggi + timedelta(days=1), min_value=oggi)
             d_out = st.date_input("Check-out", value=d_in + timedelta(days=1), min_value=d_in + timedelta(days=1))
             note = st.text_area("Note")
+            
             if st.form_submit_button("🚀 INVIA PRENOTAZIONE"):
+                # LOGICA SOVRAPPOSIZIONE BLINDATA
                 sovrapposizione = False
-                for _, r in p_casa[p_casa['Stato'] == "Confermata"].iterrows():
+                for _, r in p_casa.iterrows():
                     s_ex, e_ex = parse_date(r['Data_Inizio']), parse_date(r['Data_Fine'])
-                    if s_ex and e_ex and (d_in < e_ex and s_ex < d_out):
-                        sovrapposizione = True; break
+                    if s_ex and e_ex:
+                        # Un periodo sovrappone l'altro se (Inizio1 < Fine2) AND (Inizio2 < Fine1)
+                        if (d_in < e_ex) and (s_ex < d_out):
+                            sovrapposizione = True
+                            break
                 
                 if sovrapposizione:
-                    st.error("⚠️ Date già occupate da una prenotazione confermata!")
+                    st.error("⚠️ Errore: Le date scelte si sovrappongono a una prenotazione esistente!")
                 else:
                     nuova = pd.DataFrame([{
                         "ID": str(datetime.now().timestamp()), "Casa": casa_scelta, "Utente": st.session_state['user_name'],
@@ -105,7 +107,8 @@ else:
                     }])
                     conn.update(worksheet="Prenotazioni", data=pd.concat([df, nuova], ignore_index=True))
                     st.balloons()
-                    st.query_params["tab"] = "0"
+                    st.success("Richiesta inviata!")
+                    time.sleep(1)
                     st.rerun()
 
     # --- TAB 2: GESTIONE ---
@@ -162,11 +165,13 @@ else:
                             del st.session_state[f"conf_del_{idx}"]
                             st.rerun()
 
-    # --- TAB 3: CALENDARIO ---
+ # --- TAB 3: CALENDARIO (Sostituisci tutto il contenuto di with tabs[2]:) ---
     with tabs[2]:
         legenda = "".join([f'<span class="legenda-item" style="background:{c["color"]}">{u}</span>' for u, c in utenti_cfg.items()])
-        st.markdown(f"🗓️ 2026 | {legenda}", unsafe_allow_html=True)
+        st.markdown(f"🗓️ 2026 | {legenda} | <span class='legenda-item' style='background:#FFFFCC; color:#666; border:1px solid #ccc'>In Attesa</span>", unsafe_allow_html=True)
+        
         occ = {}
+        # Ordiniamo per Stato in modo che le 'Confermate' sovrascrivano le 'In Attesa' nella mappa visiva
         for _, r in df.sort_values(by="Stato", ascending=False).iterrows():
             s, e = parse_date(r['Data_Inizio']), parse_date(r['Data_Fine'])
             if s and e:
@@ -184,22 +189,32 @@ else:
                     m_date = datetime(2026, m, 1).date()
                     st.write(f"**{m_date.strftime('%B').upper()}**")
                     html = "<table class='cal-table'><tr>" + "".join([f"<th>{dn}</th>" for dn in ['L','M','M','G','V','S','D']]) + "</tr><tr>"
-                    wd = m_date.weekday()
+                    
+                    wd = m_date.weekday() # 0=Lunedì
                     html += "<td></td>" * wd
-                    days = ((datetime(2026, m+1, 1).date() if m < 12 else datetime(2027,1,1).date()) - m_date).days
+                    
+                    # Calcolo dinamico dell'ultimo giorno del mese
+                    if m == 12: last_day = 31
+                    else: last_day = (datetime(2026, m+1, 1).date() - timedelta(days=1)).day
+                    
                     c_col = wd
-                    for d in range(1, days + 1):
+                    for d in range(1, last_day + 1):
                         d_obj = m_date.replace(day=d)
                         bg, content = "", f"<div class='day-num'>{d}</div>"
                         if d_obj in occ:
                             inf = occ[d_obj]
-                            bg = f"background-color: {utenti_cfg[inf['u']]['color']}; color: white;" if inf['s'] == "Confermata" else "background-color: #FFFFCC; color: #666;"
+                            if inf['s'] == "Confermata":
+                                bg = f"background-color: {utenti_cfg[inf['u']]['color']}; color: white;"
+                            else:
+                                bg = "background-color: #FFFFCC; color: #666; border: 1px dashed #FFD700;"
                             content += f"<div class='full-cell'>{'🏖️' if inf['c']=='NOLI' else '🏔️'}</div>"
+                        
                         html += f"<td class='cal-td' style='{bg}'>{content}</td>"
                         c_col += 1
-                        if c_col > 6: html += "</tr><tr>"; c_col = 0
+                        if c_col > 6:
+                            html += "</tr><tr>"
+                            c_col = 0
                     st.markdown(html + "</tr></table>", unsafe_allow_html=True)
-
     # --- TAB 4: STATISTICHE ---
     with tabs[3]:
         st.header("Statistiche")
