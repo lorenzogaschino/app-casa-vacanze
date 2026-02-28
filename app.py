@@ -299,38 +299,37 @@ else:
                         html += "<td></td>" * (7 - c_col)
                         
                     st.markdown(html + "</tr></table>", unsafe_allow_html=True)
-   # --- TAB 4: STATISTICHE ---
+  # --- TAB 4: STATISTICHE ---
     with tabs[3]:
         st.header("Analisi Occupazione 2026")
         
-        # CSS Iniettato Ottimizzato
+        # CSS Definitivo per Mobile
         st.markdown("""
             <style>
-                /* Forza colonne affiancate su mobile */
+                /* Forza le colonne a stare affiancate (50/50) */
                 [data-testid="column"] {
-                    width: 48% !important;
-                    flex: 1 1 48% !important;
-                    min-width: 48% !important;
+                    width: 50% !important;
+                    flex: 1 1 50% !important;
+                    min-width: 50% !important;
+                    padding: 0 5px !important;
                 }
-                /* Impedisce alle immagini di deformarsi */
+                
+                /* Rimpicciolisce forzatamente le foto */
+                [data-testid="stImage"] {
+                    max-width: 100% !important;
+                }
                 [data-testid="stImage"] img {
-                    object-fit: cover;
-                    border-radius: 10px;
+                    height: 80px !important; /* Altezza fissa per tenerle piccole e uguali */
+                    object-fit: cover !important;
+                    border-radius: 8px;
                 }
-                /* Compattazione tabella per schermi stretti */
-                .stTable {
-                    font-size: 13px !important;
-                }
-                table {
-                    width: 100% !important;
-                }
-                th {
-                    text-align: left !important;
-                }
-                td {
-                    white-space: nowrap; /* Nome su una riga */
-                    padding: 4px 8px !important;
-                }
+
+                /* Font tabella e metriche leggibili */
+                .stTable { font-size: 13px !important; }
+                [data-testid="stMetricValue"] { font-size: 1.5rem !important; } /* Ripristina grandezza numeri */
+                
+                table { width: 100% !important; }
+                td { white-space: nowrap; padding: 4px !important; }
             </style>
         """, unsafe_allow_html=True)
 
@@ -342,7 +341,7 @@ else:
         df_stats = df.copy()
         df_stats['GG'] = df_stats.apply(calc_days, axis=1)
         
-        # --- LAYOUT SUPERIORE: FOTO AFFIANCATE ---
+        # --- LAYOUT SUPERIORE: FOTO PICCOLE E AFFIANCATE ---
         c1, c2 = st.columns(2)
         
         with c1:
@@ -351,7 +350,7 @@ else:
                 st.image(img_noli, use_container_width=True)
             st.caption("NOLI 🏖️")
             noli_conf = df_stats[(df_stats['Casa'] == 'NOLI') & (df_stats['Stato'] == 'Confermata')]['GG'].sum()
-            st.markdown(f"**{int(noli_conf)} gg**")
+            st.metric(label=None, value=f"{int(noli_conf)} gg")
             
         with c2:
             img_limone = "Limone.jpg" if os.path.exists("Limone.jpg") else "limone.jpg"
@@ -359,30 +358,24 @@ else:
                 st.image(img_limone, use_container_width=True)
             st.caption("LIMONE 🏔️")
             limone_conf = df_stats[(df_stats['Casa'] == 'LIMONE') & (df_stats['Stato'] == 'Confermata')]['GG'].sum()
-            st.markdown(f"**{int(limone_conf)} gg**")
+            st.metric(label=None, value=f"{int(limone_conf)} gg")
             
         st.divider()
         
         # --- TABELLA RIEPILOGO ---
         st.subheader("Riepilogo Utente")
         
-        # Aggregazione dati
         conf_u = df_stats[df_stats['Stato'] == 'Confermata'].groupby('Utente')['GG'].sum().reset_index()
         conf_u.columns = ['Utente', 'Conf.🔴']
         
         rich_u = df_stats[df_stats['Stato'] != 'Confermata'].groupby('Utente')['GG'].sum().reset_index()
         rich_u.columns = ['Utente', 'Rich.⏳']
         
-        # Merge completo su tutti gli utenti configurati
         tutti_utenti = pd.DataFrame({'Utente': list(utenti_cfg.keys())})
         final_stats = pd.merge(tutti_utenti, conf_u, on='Utente', how='left')
         final_stats = pd.merge(final_stats, rich_u, on='Utente', how='left').fillna(0)
         
-        # Formattazione finale
         final_stats['Conf.🔴'] = final_stats['Conf.🔴'].astype(int)
         final_stats['Rich.⏳'] = final_stats['Rich.⏳'].astype(int)
         
-        # Visualizzazione ordinata
         st.table(final_stats.sort_values(by='Conf.🔴', ascending=False))
-        
-        st.info("💡 Giorni = Fine - Inizio")
