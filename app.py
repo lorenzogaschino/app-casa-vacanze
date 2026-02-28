@@ -7,7 +7,6 @@ import time
 # --- CONFIGURAZIONE ---
 st.set_page_config(page_title="Family Booking", page_icon="🏠", layout="wide")
 
-# --- CSS ORIGINALE ---
 st.markdown("""
     <style>
     div.stButton > button { width: 100% !important; height: 3.5em !important; border-radius: 12px !important; font-weight: bold !important; }
@@ -23,10 +22,12 @@ def get_data():
     data = conn.read(worksheet="Prenotazioni", ttl=0)
     data = data.dropna(how='all', axis=0)
     data.columns = [str(c).strip() for c in data.columns]
-    for col in ['Voti_Ok', 'Stato', 'Casa', 'Utente', 'Data_Inizio', 'Data_Fine', 'ID']:
+    # Colonne standard del database
+    cols = ['ID', 'Casa', 'Utente', 'Stato', 'Voti_Ok', 'Data_Inizio', 'Data_Fine', 'Note']
+    for col in cols:
         if col not in data.columns: data[col] = ""
         data[col] = data[col].fillna("").astype(str).str.strip()
-    return data
+    return data[cols] # Restituisce solo le colonne pulite
 
 def parse_date(d_str):
     if not d_str or d_str == "": return None
@@ -55,29 +56,27 @@ else:
     conn = st.connection("gsheets", type=GSheetsConnection)
     mio_nome = st.session_state['user_name']
     utenti_cfg = {"Anita": "#FF4B4B", "Chiara": "#FFC0CB", "Lorenzo": "#1C83E1", "Gianluca": "#28A745"}
+    db_cols = ['ID', 'Casa', 'Utente', 'Stato', 'Voti_Ok', 'Data_Inizio', 'Data_Fine', 'Note']
 
     tabs = st.tabs(["📅 PRENOTA", "📊 GESTIONE", "🗓️ CALENDARIO", "📈 STATISTICHE"])
 
-    # --- TAB 1: PRENOTA (Corretto con Foto e Filtro Casa) ---
+    # --- TAB 1: PRENOTA ---
     with tabs[0]:
         st.header("Nuova Prenotazione")
         casa_scelta = st.selectbox("Scegli la meta", ["NOLI", "LIMONE"])
         
-        # FOTO CASE (Ripristinate)
+        # FOTO RIPRISTINATE E TESTATE
         if casa_scelta == "NOLI":
-            st.image("https://allaboutitaly.com/wp-content/uploads/2018/06/Noli.jpg", width=400)
+            st.image("https://allaboutitaly.com/wp-content/uploads/2018/06/Noli.jpg", width=450)
         else:
-            st.image("https://www.limonepiemonte.it/images/limone-piemonte-inverno.jpg", width=400)
+            st.image("https://www.limonepiemonte.it/images/limone-piemonte-inverno.jpg", width=450)
 
         st.subheader(f"Stato attuale: {casa_scelta}")
-        if not df.empty:
-            # FILTRO: Mostra solo prenotazioni della casa selezionata
-            df_casa = df[df['Casa'] == casa_scelta]
-            for _, r in df_casa.iterrows():
-                v_list = [v.strip() for v in str(r['Voti_Ok']).split(',') if v.strip()]
-                color, label = ("#FF4B4B", "🔴 CONFERMATA") if len(v_list) >= 3 else ("#FFD700", "⏳ RICHIESTA")
-                txt = f"{label}: {r['Data_Inizio']} - {r['Data_Fine']} - {r['Utente']}"
-                st.markdown(f"<div style='color:{color}; font-weight:bold; margin-bottom:4px;'>{txt}</div>", unsafe_allow_html=True)
+        df_casa = df[df['Casa'] == casa_scelta]
+        for _, r in df_casa.iterrows():
+            v_list = [v.strip() for v in str(r['Voti_Ok']).split(',') if v.strip()]
+            color, label = ("#FF4B4B", "🔴 CONFERMATA") if len(v_list) >= 3 else ("#FFD700", "⏳ RICHIESTA")
+            st.markdown(f"<div style='color:{color}; font-weight:bold;'>{label}: {r['Data_Inizio']} - {r['Data_Fine']} - {r['Utente']}</div>", unsafe_allow_html=True)
 
         with st.form("form_prenota"):
             d_in = st.date_input("Check-in", value=datetime.now().date() + timedelta(days=1))
@@ -85,45 +84,51 @@ else:
             note = st.text_area("Note")
             if st.form_submit_button("🚀 INVIA PRENOTAZIONE"):
                 conflitto = None
-                p_casa = df[df['Casa'] == casa_scelta]
-                for _, r in p_casa.iterrows():
+                for _, r in df[df['Casa'] == casa_scelta].iterrows():
                     s_ex, e_ex = parse_date(r['Data_Inizio']), parse_date(r['Data_Fine'])
                     if s_ex and e_ex and (d_in < e_ex) and (d_out > s_ex):
                         conflitto = r; break
-                
-                if d_out <= d_in:
-                    st.error("Errore: Check-out deve essere dopo il Check-in")
-                elif conflitto is not None:
-                    st.error(f"❌ CONFLITTO: {conflitto['Data_Inizio']} - {conflitto['Data_Fine']} ({conflitto['Utente']})")
+                if d_out <= d_in: st.error("Errore date")
+                elif conflitto is not None: st.error(f"Conflitto con {conflitto['Utente']}")
                 else:
-                    new_r = pd.DataFrame([{"ID": str(time.time()), "Casa": casa_scelta, "Utente": mio_nome, 
-                                           "Data_Inizio": d_in.strftime('%d/%m/%Y'), "Data_Fine": d_out.strftime('%d/%m/%Y'),
-                                           "Stato": "In Attesa", "Voti_Ok": "", "Note": note}])
-                    conn.update(worksheet="Prenotazioni", data=pd.concat([df, new_r], ignore_index=True))
-                    st.success("Prenotazione inviata!"); time.sleep(1); st.rerun()
+                    new_r = pd.DataFrame([{"ID": str(time.time()), "Casa": casa_scelta, "Utente": mio_nome, "Data_Inizio": d_in.strftime('%d/%m/%Y'), "Data_Fine": d_out.strftime('%d/%m/%Y'), "Stato": "In Attesa", "Voti_Ok": "", "Note": note}])
+                    conn.update(worksheet="Prenotazioni", data=pd.concat([df, new_r], ignore_index=True)[db_cols])
+                    st.success("Inviata!"); time.sleep(1); st.rerun()
 
     # --- TAB 2: GESTIONE ---
     with tabs[1]:
         st.header("Gestione")
         if not df.empty:
-            def process_gest(row):
+            def processa(row):
                 v_list = [v.strip() for v in str(row['Voti_Ok']).split(',') if v.strip()]
                 mancano = [u for u in utenti_cfg.keys() if u != row['Utente'] and u not in v_list]
-                return pd.Series([", ".join(v_list), ", ".join(mancano), "Confermata" if len(mancano) == 0 else "In Attesa"])
-            df[['Voti', 'Mancano', 'Stato_R']] = df.apply(process_gest, axis=1)
-            st.dataframe(df[['Casa', 'Utente', 'Data_Inizio', 'Stato_R', 'Mancano']], use_container_width=True, hide_index=True)
+                return pd.Series([", ".join(v_list), ", ".join(mancano), "Confermata" if len(v_list) >= 3 else "In Attesa"])
+            
+            df_view = df.copy()
+            df_view[['Approvati', 'Mancano', 'Stato_Reale']] = df_view.apply(processa, axis=1)
+            st.dataframe(df_view[['Casa', 'Utente', 'Data_Inizio', 'Data_Fine', 'Stato_Reale', 'Mancano']], use_container_width=True, hide_index=True)
             
             st.subheader("👍 Approva")
-            pendenti = df[(df['Utente'] != mio_nome) & (df['Stato_R'] == "In Attesa") & (~df['Voti'].str.contains(mio_nome))]
+            pendenti = df_view[(df_view['Utente'] != mio_nome) & (df_view['Stato_Reale'] == "In Attesa") & (~df_view['Approvati'].str.contains(mio_nome))]
             for idx, r in pendenti.iterrows():
-                if st.button(f"APPROVA {r['Casa']} ({r['Data_Inizio']})", key=f"ap_{idx}"):
+                # Formato richiesto: CASA - Inizio - Fine - Utente
+                label_btn = f"{r['Casa']} - {r['Data_Inizio']} - {r['Data_Fine']} - {r['Utente']}"
+                if st.button(f"APPROVA: {label_btn}", key=f"ap_{idx}"):
                     v_new = (str(r['Voti_Ok']) + f", {mio_nome}").strip(", ")
                     df.at[idx, 'Voti_Ok'] = v_new
                     if len(v_new.split(',')) >= 3: df.at[idx, 'Stato'] = "Confermata"
-                    conn.update(worksheet="Prenotazioni", data=df.drop(columns=['Voti', 'Mancano', 'Stato_R']))
+                    conn.update(worksheet="Prenotazioni", data=df[db_cols])
                     st.rerun()
 
-    # --- TAB 3: CALENDARIO (Versione Corretta e Stabile) ---
+            st.subheader("🗑️ Elimina")
+            mie = df_view[df_view['Utente'] == mio_nome]
+            for idx, r in mie.iterrows():
+                label_del = f"{r['Casa']} - {r['Data_Inizio']} - {r['Data_Fine']} - {r['Utente']}"
+                if st.button(f"ELIMINA: {label_del}", key=f"del_{idx}"):
+                    conn.update(worksheet="Prenotazioni", data=df.drop(index=idx)[db_cols])
+                    st.rerun()
+
+    # --- TAB 3: CALENDARIO (TUTTO IL 2026) ---
     with tabs[2]:
         st.header("Calendario 2026")
         occ = {}
@@ -132,70 +137,56 @@ else:
             if s and e:
                 curr = s
                 while curr < e:
-                    voti_count = len([v for v in str(r['Voti_Ok']).split(',') if v.strip()])
-                    occ[(curr, r['Casa'])] = {"u": r['Utente'], "v": voti_count}
+                    v_count = len([v for v in str(r['Voti_Ok']).split(',') if v.strip()])
+                    occ[(curr, r['Casa'])] = {"u": r['Utente'], "v": v_count}
                     curr += timedelta(days=1)
         
         for m in range(1, 13):
             m_date = datetime(2026, m, 1).date()
             st.write(f"**{m_date.strftime('%B %Y').upper()}**")
-            
-            # Calcolo ultimo giorno del mese
-            if m == 12:
-                last_day = 31
-            else:
-                last_day = (datetime(2026, m+1, 1) - timedelta(days=1)).day
-                
+            last_day = 31 if m == 12 else (datetime(2026, m+1, 1) - timedelta(days=1)).day
             html = "<table class='cal-table'><tr><th>L</th><th>M</th><th>M</th><th>G</th><th>V</th><th>S</th><th>D</th></tr><tr>"
-            wd = m_date.weekday() # 0=Lunedì, 6=Domenica
+            wd = m_date.weekday()
             html += "<td></td>" * wd
-            
             curr_c = wd
             for d in range(1, last_day + 1):
                 d_obj = m_date.replace(day=d)
                 bg, ico = "", ""
                 rn, rl = occ.get((d_obj, "NOLI")), occ.get((d_obj, "LIMONE"))
-                
                 if rn or rl:
-                    # Se ci sono entrambe, diamo priorità visiva a quella confermata o alla prima trovata
                     res = rn if rn else rl
                     bg = f"background:{utenti_cfg.get(res['u'], '#eee')};" if res['v'] >= 3 else "background:#FFFFCC;"
                     if rn: ico += "🏖️"
                     if rl: ico += "🏔️"
-                
                 html += f"<td class='cal-td' style='{bg}'><div class='day-num'>{d}</div>{ico}</td>"
                 curr_c += 1
-                if curr_c > 6: 
-                    html += "</tr><tr>"
-                    curr_c = 0
+                if curr_c > 6: html += "</tr><tr>"; curr_c = 0
             st.markdown(html + "</tr></table>", unsafe_allow_html=True)
 
-    # --- TAB 4: STATISTICHE (Foto + Tabella Riepilogo) ---
+    # --- TAB 4: STATISTICHE ---
     with tabs[3]:
         st.header("Statistiche 2026")
-        def calc_gg(r):
+        def gg(r):
             s, e = parse_date(r['Data_Inizio']), parse_date(r['Data_Fine'])
             return (e-s).days if s and e else 0
-        df['GG'] = df.apply(calc_gg, axis=1)
+        df['GG'] = df.apply(gg, axis=1)
+        df['Is_Conf'] = df['Voti_Ok'].apply(lambda x: len([v for v in str(x).split(',') if v.strip()]) >= 3)
         
-        # Metriche con Foto (Ripristinate)
         c1, c2 = st.columns(2)
         with c1:
             st.subheader("NOLI 🏖️")
             st.image("https://allaboutitaly.com/wp-content/uploads/2018/06/Noli.jpg", use_container_width=True)
-            st.metric("GG Confermati", int(df[(df['Casa']=='NOLI') & (df['Stato']=='Confermata')]['GG'].sum()))
+            st.metric("GG Confermati", int(df[(df['Casa']=='NOLI') & (df['Is_Conf']) ]['GG'].sum()))
         with c2:
             st.subheader("LIMONE 🏔️")
             st.image("https://www.limonepiemonte.it/images/limone-piemonte-inverno.jpg", use_container_width=True)
-            st.metric("GG Confermati", int(df[(df['Casa']=='LIMONE') & (df['Stato']=='Confermata')]['GG'].sum()))
+            st.metric("GG Confermati", int(df[(df['Casa']=='LIMONE') & (df['Is_Conf']) ]['GG'].sum()))
         
         st.divider()
         st.subheader("Riepilogo Utente")
-        # Costruzione Tabella Riepilogo (Vecchio screenshot)
         riepilogo = []
         for u in utenti_cfg.keys():
-            conf = df[(df['Utente'] == u) & (df['Stato'] == 'Confermata')]['GG'].sum()
-            rich = df[(df['Utente'] == u) & (df['Stato'] != 'Confermata')]['GG'].sum()
+            conf = df[(df['Utente'] == u) & (df['Is_Conf'])]['GG'].sum()
+            rich = df[(df['Utente'] == u) & (~df['Is_Conf'])]['GG'].sum()
             riepilogo.append({"Utente": u, "Confermati 🔴": int(conf), "Richiesti ⏳": int(rich)})
-        
         st.table(pd.DataFrame(riepilogo))
