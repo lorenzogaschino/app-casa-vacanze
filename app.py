@@ -99,8 +99,7 @@ else:
                     icona = "⏳"
                 
                 info = f"{r['Casa']} - {r['Data_Inizio']} - {r['Data_Fine']} - {r['Utente']}"
-                st.markdown(f"<div style='font-size: 0.85rem; line-height: 1.2;'><span style='color:{color}; font-weight:bold;'>{icona} {label}:</span> {info}</div>", unsafe_allow_html=True)
-        # FORM DI PRENOTAZIONE
+                st.markdown(f"<div style='font-size: 0.9rem; line-height: 1.8; margin-bottom: 8px;'><span style='color:{color}; font-weight:bold;'>{icona} {label}:</span> {info}</div>", unsafe_allow_html=True)        # FORM DI PRENOTAZIONE
         with st.form("booking_form", clear_on_submit=False):
             oggi = datetime.now().date()
             
