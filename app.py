@@ -167,7 +167,6 @@ else:
                             st.error(f"Errore tecnico durante il salvataggio: {e}")
 # --- TAB 2: GESTIONE ---
     with tabs[1]:
-        # CSS per font ridotto e bottoni full-width su mobile
         st.markdown("""
             <style>
                 .stDataFrame { font-size: 12px !important; }
@@ -176,7 +175,6 @@ else:
                     padding: 5px 10px !important; 
                     width: 100% !important;
                 }
-                [data-testid="stAppViewBlockContainer"] { padding-top: 1rem !important; }
             </style>
         """, unsafe_allow_html=True)
 
@@ -185,6 +183,7 @@ else:
         # 1. VISUALIZZAZIONE DATABASE COMPLETO
         st.subheader("Tutte le Prenotazioni")
         df_gestione = get_data() 
+        # Ripristinate tutte le colonne necessarie per il controllo
         st.dataframe(
             df_gestione[['Casa', 'Utente', 'Data_Inizio', 'Data_Fine', 'Stato', 'Note']], 
             use_container_width=True,
@@ -193,45 +192,46 @@ else:
         
         st.divider()
 
-        # 2. SEZIONE APPROVAZIONE
+        # 2. SEZIONE APPROVAZIONE (CON FILTRO DI SICUREZZA)
         st.subheader("Richieste da Approvare")
-        attesa = df_gestione[df_gestione['Stato'] == "In Attesa"].copy()
+        # Filtro: Stato "In Attesa" E l'utente loggato NON deve essere l'autore della richiesta
+        attesa = df_gestione[
+            (df_gestione['Stato'] == "In Attesa") & 
+            (df_gestione['Utente'] != st.session_state['user_name'])
+        ].copy()
 
         if attesa.empty:
-            st.info("Nessuna richiesta in sospeso.")
+            st.info("Nessuna richiesta altrui in sospeso da approvare.")
         else:
+            st.warning(f"Hai {len(attesa)} richieste da gestire:")
             for _, r in attesa.iterrows():
-                # Info testuale sopra
                 st.markdown(f"🏠 **{r['Casa']}** | 👤 **{r['Utente']}**")
                 st.caption(f"📅 {r['Data_Inizio']} - {r['Data_Fine']} | 📝 {r['Note']}")
                 
-                # Bottone sotto (full-width)
-                if st.button(f"✅ CONFERMA PRENOTAZIONE", key=f"conf_{r['ID']}"):
+                if st.button(f"✅ CONFERMA PRENOTAZIONE DI {r['Utente'].upper()}", key=f"conf_{r['ID']}"):
                     df_ultimo = get_data()
                     if r['ID'] in df_ultimo['ID'].values:
                         df_ultimo.loc[df_ultimo['ID'] == r['ID'], 'Stato'] = "Confermata"
                         conn.update(worksheet="Prenotazioni", data=df_ultimo)
-                        st.success(f"Confermata!")
+                        st.success(f"Prenotazione confermata!")
                         time.sleep(1)
                         st.rerun()
                 st.divider()
 
-        # 3. SEZIONE ELIMINAZIONE (Identica a Approva)
+        # 3. SEZIONE ELIMINAZIONE (SOLO I PROPRI INSERIMENTI)
         st.subheader("Elimina le tue prenotazioni")
+        # Qui l'utente vede solo le SUE, che può eliminare ma non approvare
         mie_prenotazioni = df_gestione[df_gestione['Utente'] == st.session_state['user_name']]
         
         if mie_prenotazioni.empty:
             st.write("Non hai prenotazioni attive da eliminare.")
         else:
             for _, r in mie_prenotazioni.iterrows():
-                # Struttura identica: Info testuale sopra
                 st.markdown(f"🏠 **{r['Casa']}** | 📅 {r['Data_Inizio']} - {r['Data_Fine']}")
                 st.caption(f"Stato attuale: {r['Stato']}")
                 
-                # Bottone sotto (full-width)
-                if st.button(f"🗑️ ELIMINA PRENOTAZIONE", key=f"del_{r['ID']}"):
+                if st.button(f"🗑️ ELIMINA LA MIA PRENOTAZIONE", key=f"del_{r['ID']}"):
                     df_ultimo = get_data()
-                    # Eliminiamo la riga filtrando per ID
                     df_nuovo = df_ultimo[df_ultimo['ID'] != r['ID']]
                     conn.update(worksheet="Prenotazioni", data=df_nuovo)
                     st.warning("Prenotazione eliminata.")
