@@ -35,13 +35,9 @@ def parse_date(d_str):
     try: return datetime.strptime(d_str, '%d/%m/%Y').date()
     except: return None
 
-# --- LOGICA NAVIGAZIONE PERSISTENTE ---
+# --- LOGICA NAVIGAZIONE ---
 if 'authenticated' not in st.session_state: st.session_state['authenticated'] = False
-
-# Recupero il tab attivo dai parametri URL o default a 0
-if "tab" not in st.query_params:
-    st.query_params["tab"] = "0"
-current_tab = int(st.query_params["tab"])
+if "tab" not in st.query_params: st.query_params["tab"] = "0"
 
 # --- LOGIN ---
 if not st.session_state['authenticated']:
@@ -68,7 +64,6 @@ else:
     conn = st.connection("gsheets", type=GSheetsConnection)
     utenti_cfg = {"Anita": {"color": "#FF4B4B"}, "Chiara": {"color": "#FFC0CB"}, "Lorenzo": {"color": "#1C83E1"}, "Gianluca": {"color": "#28A745"}}
 
-    # Tab con indice controllato dai query_params
     tabs = st.tabs(["📅 PRENOTA", "📊 GESTIONE", "🗓️ CALENDARIO", "📈 STATISTICHE"])
 
     # --- TAB 1: PRENOTA ---
@@ -90,11 +85,10 @@ else:
 
         with st.form("booking_form"):
             oggi = datetime.now().date()
-            d_in = st.date_input("Check-in (Giorno arrivo)", value=oggi + timedelta(days=1), min_value=oggi)
-            d_out = st.date_input("Check-out (Giorno partenza)", value=d_in + timedelta(days=1), min_value=d_in + timedelta(days=1))
+            d_in = st.date_input("Check-in", value=oggi + timedelta(days=1), min_value=oggi)
+            d_out = st.date_input("Check-out", value=d_in + timedelta(days=1), min_value=d_in + timedelta(days=1))
             note = st.text_area("Note")
             if st.form_submit_button("🚀 INVIA PRENOTAZIONE"):
-                # Check sovrapposizione
                 sovrapposizione = False
                 for _, r in p_casa[p_casa['Stato'] == "Confermata"].iterrows():
                     s_ex, e_ex = parse_date(r['Data_Inizio']), parse_date(r['Data_Fine'])
@@ -118,12 +112,13 @@ else:
     with tabs[1]:
         st.header("Gestione Prenotazioni")
         if not df.empty:
-            # Calcolo GG per visualizzazione
+            # Calcolo GG (Notti effettive)
             def get_gg(r):
                 d1, d2 = parse_date(r['Data_Inizio']), parse_date(r['Data_Fine'])
                 return (d2 - d1).days if d1 and d2 else 0
             df['GG'] = df.apply(get_gg, axis=1)
             
+            # Tabella principale
             st.dataframe(df[['Casa', 'Utente', 'Data_Inizio', 'Data_Fine', 'GG', 'Stato']], use_container_width=True, hide_index=True)
 
             st.divider()
@@ -135,7 +130,9 @@ else:
                 for idx, row in da_approvare.iterrows():
                     voti = [x.strip() for x in str(row['Voti_Ok']).split(",") if x.strip()]
                     if st.session_state['user_name'] not in voti:
-                        if st.button(f"Approva: {row['Casa']} - {row['Data_Inizio']} - {row['Utente']}", key=f"ap_{idx}"):
+                        # FORMATO PULSANTI: Casa - Data_Inizio - Data_Fine - Utente
+                        label_app = f"Approva: {row['Casa']} - {row['Data_Inizio']} - {row['Data_Fine']} - {row['Utente']}"
+                        if st.button(label_app, key=f"ap_{idx}"):
                             voti.append(st.session_state['user_name'])
                             df.at[idx, 'Voti_Ok'] = ", ".join(voti)
                             if len(voti) >= 3: df.at[idx, 'Stato'] = "Confermata"
@@ -147,11 +144,13 @@ else:
                 st.subheader("🗑️ Elimina le tue")
                 le_mie = df[df['Utente'] == st.session_state['user_name']]
                 for idx, row in le_mie.iterrows():
-                    if st.button(f"Cancella: {row['Casa']} - {row['Data_Inizio']}", key=f"pre_del_{idx}"):
+                    # FORMATO PULSANTI: Casa - Data_Inizio - Data_Fine - Utente
+                    label_del = f"Cancella: {row['Casa']} - {row['Data_Inizio']} - {row['Data_Fine']} - {row['Utente']}"
+                    if st.button(label_del, key=f"pre_del_{idx}"):
                         st.session_state[f"conf_del_{idx}"] = True
                     
                     if st.session_state.get(f"conf_del_{idx}"):
-                        st.error("Confermi l'eliminazione?")
+                        st.error(f"Confermi l'eliminazione?")
                         c1, c2 = st.columns(2)
                         if c1.button("SÌ, ELIMINA", key=f"real_del_{idx}"):
                             df_new = df.drop(idx).drop(columns=['GG'])
@@ -172,7 +171,7 @@ else:
             s, e = parse_date(r['Data_Inizio']), parse_date(r['Data_Fine'])
             if s and e:
                 curr = s
-                while curr < e: # Check-out escluso dal calendario per permettere arrivo lo stesso giorno
+                while curr < e:
                     if curr not in occ or (occ[curr]['s'] == "In Attesa" and r['Stato'] == "Confermata"):
                         occ[curr] = {"u": r['Utente'], "c": r['Casa'], "s": r['Stato']}
                     curr += timedelta(days=1)
@@ -205,7 +204,6 @@ else:
     with tabs[3]:
         st.header("Statistiche")
         if not df.empty:
-            # Assicuro ricalcolo per statistiche
             df['GG'] = df.apply(get_gg, axis=1)
             c1, c2 = st.columns(2)
             noli_gg = df[(df['Casa'] == 'NOLI') & (df['Stato'] == 'Confermata')]['GG'].sum()
