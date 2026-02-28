@@ -178,24 +178,27 @@ else:
 
         # 1. CARICAMENTO DATI
         df_gestione = get_data()
-        # Inserisci qui i 4 nomi reali
-        UTENTI_TOTALI = ["Chiara", "Lorenzo", "Gianluca", "Utente4"] 
+        UTENTI_TOTALI = ["Chiara", "Lorenzo", "Gianluca", "Utente4"] # Sostituisci Utente4 con il nome reale
 
         if not df_gestione.empty:
             df = df_gestione.copy()
 
-            # Funzione interna per calcolare chi ha votato e chi manca
+            # Normalizzazione nomi colonne per evitare KeyError (rimuove spazi e ignora maiuscole)
+            df.columns = [c.strip() for c in df.columns]
+            
+            # Funzione per trovare la colonna dei voti indipendentemente da come è scritta (Voti_Ok, Voti_OK, voti_ok)
+            col_voti = next((c for c in df.columns if c.lower() == 'voti_ok'), None)
+
             def processa_approvazioni(row):
                 creatore = row['Utente']
-                # USIAMO 'Voti_Ok' (minuscolo come da tuo Sheet)
-                col_voti = 'Voti_Ok' if 'Voti_Ok' in row else 'Voti_OK'
-                voti_str = str(row[col_voti]) if pd.notna(row[col_voti]) and str(row[col_voti]) != 'nan' else ""
+                # Legge i voti dalla colonna individuata
+                voti_str = str(row[col_voti]) if col_voti and pd.notna(row[col_voti]) and str(row[col_voti]) != 'nan' else ""
                 
                 voti_fatti = [v.strip() for v in voti_str.split(',') if v.strip()]
                 altri_utenti = [u for u in UTENTI_TOTALI if u != creatore]
                 mancano = [u for u in altri_utenti if u not in voti_fatti]
                 
-                # Stato: Confermata se mancano 0 persone (ovvero tutti e 3 gli altri hanno votato)
+                # Regola: Servono tutti e 3 gli altri utenti per confermare
                 stato_calcolato = "Confermata" if len(mancano) == 0 else "Richiesta"
                 
                 return pd.Series([
@@ -204,64 +207,67 @@ else:
                     stato_calcolato
                 ])
 
-            # Creazione colonne di visualizzazione
+            # Creazione colonne calcolate per la visualizzazione
             df[['Chi_ha_approvato', 'Mancano', 'Stato_Reale']] = df.apply(processa_approvazioni, axis=1)
 
             st.subheader("Tutte le Prenotazioni")
-            # Visualizziamo solo le colonne utili (evita KeyError se 'Stato' originale manca)
-            cols_visualizza = ['Casa', 'Utente', 'Data_Inizio', 'Data_Fine', 'Stato_Reale', 'Chi_ha_approvato', 'Mancano']
-            st.dataframe(df[cols_visualizza], use_container_width=True, hide_index=True)
+            # Selezioniamo solo colonne esistenti + le 3 nuove per la tabella
+            cols_base = ['Casa', 'Utente', 'Data_Inizio', 'Data_Fine']
+            cols_show = [c for c in cols_base if c in df.columns] + ['Stato_Reale', 'Chi_ha_approvato', 'Mancano']
+            
+            st.dataframe(df[cols_show], use_container_width=True, hide_index=True)
 
             st.divider()
 
-            # 2. SEZIONE APPROVAZIONE
-            st.subheader("Registra il tuo voto")
+            # 2. SEZIONE AZIONE: APPROVA
+            st.subheader("Registra la tua Approvazione")
             
-            # Recuperiamo l'utente loggato (assicurati che esista in session_state)
-            mio_nome = st.session_state.get('username', 'Chiara') # 'Chiara' è di esempio
-            
-            # Filtro: Prenotazioni non create da me, non ancora confermate, e non ancora votate da me
-            pendenti = df[
-                (df['Utente'] != mio_nome) & 
-                (df['Stato_Reale'] == "Richiesta") & 
-                (~df['Chi_ha_approvato'].str.contains(mio_nome))
-            ]
+            # Recuperiamo l'utente (usa session_state.username se l'hai configurato, altrimenti selectbox)
+            mio_nome = st.session_state.get('username', st.selectbox("Seleziona il tuo nome per votare:", [""] + UTENTI_TOTALI))
 
-            if not pendenti.empty:
-                opzioni = pendenti.apply(lambda x: f"ID: {x['ID']} - {x['Casa']} ({x['Data_Inizio']})", axis=1).tolist()
-                scelta = st.selectbox("Seleziona la prenotazione da approvare:", opzioni)
-                
-                if st.button("Approva Ora"):
-                    # Troviamo la riga corrispondente
-                    idx_originale = pendenti.index[opzioni.index(scelta)]
-                    row_sel = df.loc[idx_originale]
-                    
-                    # Aggiornamento stringa voti
-                    voti_precedenti = str(row_sel['Voti_Ok']) if pd.notna(row_sel['Voti_Ok']) and str(row_sel['Voti_Ok']) != 'nan' else ""
-                    nuovi_voti = f"{voti_precedenti}, {mio_nome}".strip(", ")
-                    
-                    # Calcolo nuovo stato finale
-                    lista_voti = [v.strip() for v in nuovi_voti.split(',') if v.strip()]
-                    nuovo_stato = "Confermata" if len(lista_voti) >= 3 else "Richiesta"
+            if mio_nome:
+                # Filtro: Non mie, ancora "Richiesta", e non ancora votate da me
+                pendenti = df[
+                    (df['Utente'] != mio_nome) & 
+                    (df['Stato_Reale'] == "Richiesta") & 
+                    (~df['Chi_ha_approvato'].str.contains(mio_nome))
+                ]
 
-                    # SCRITTURA SU GOOGLE SHEET
-                    try:
-                        # Assumendo che 'sheet' sia il tuo oggetto gspread definito globalmente
-                        # Troviamo la riga nel foglio cercando l'ID (più sicuro del calcolo numerico)
-                        cell = sheet.find(str(row_sel['ID']))
-                        riga_target = cell.row
+                if not pendenti.empty:
+                    opzioni = pendenti.apply(lambda x: f"ID: {x['ID']} - {x['Casa']} ({x['Data_Inizio']})", axis=1).tolist()
+                    scelta = st.selectbox("Quale prenotazione vuoi approvare?", opzioni)
+                    
+                    if st.button("Conferma Approvazione"):
+                        # Recupero dati riga selezionata
+                        idx = pendenti.index[opzioni.index(scelta)]
+                        row_sel = df.loc[idx]
                         
-                        # Aggiorniamo Colonna E (Voti_Ok) e Colonna D (Stato)
-                        sheet.update_cell(riga_target, 5, nuovi_voti) # 5 = E
-                        sheet.update_cell(riga_target, 4, nuovo_stato) # 4 = D
+                        # Prepariamo i nuovi dati
+                        voti_attuali = str(row_sel[col_voti]) if col_voti and pd.notna(row_sel[col_voti]) and str(row_sel[col_voti]) != 'nan' else ""
+                        nuovi_voti = f"{voti_attuali}, {mio_nome}".strip(", ")
                         
-                        st.success(f"Approvazione salvata! Stato aggiornato a: {nuovo_stato}")
-                        st.balloons()
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Errore tecnico nel salvataggio: {e}")
-            else:
-                st.info(f"Nessuna prenotazione in attesa del tuo voto, {mio_nome}!")
+                        # Calcolo nuovo stato
+                        num_voti = len([v for v in nuovi_voti.split(',') if v.strip()])
+                        nuovo_stato = "Confermata" if num_voti >= 3 else "Richiesta"
+
+                        # --- SCRITTURA SUL FOGLIO GOOGLE ---
+                        try:
+                            # Cerchiamo la riga tramite ID (Colonna A)
+                            cell = sheet.find(str(row_sel['ID']))
+                            riga_target = cell.row
+                            
+                            # Aggiornamento Colonna E (Voti_Ok) e D (Stato)
+                            # Nota: Se le colonne nel tuo sheet sono diverse, cambia i numeri 5 e 4
+                            sheet.update_cell(riga_target, 5, nuovi_voti) 
+                            sheet.update_cell(riga_target, 4, nuovo_stato)
+                            
+                            st.success(f"Grazie {mio_nome}! Approvazione salvata.")
+                            st.balloons()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Errore durante il salvataggio: {e}")
+                else:
+                    st.info(f"Non ci sono nuove richieste da approvare per te, {mio_nome}.")
     
  # --- TAB 3: CALENDARIO ---
     with tabs[2]:
