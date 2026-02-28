@@ -165,60 +165,77 @@ else:
                             st.rerun()
                         except Exception as e:
                             st.error(f"Errore tecnico durante il salvataggio: {e}")
-    # --- TAB 2: GESTIONE ---
+   # --- TAB 2: GESTIONE ---
     with tabs[1]:
-        st.header("Gestione Prenotazioni")
-        if not df.empty:
-            # Calcolo GG (Notti effettive)
-            def get_gg(r):
-                d1, d2 = parse_date(r['Data_Inizio']), parse_date(r['Data_Fine'])
-                return (d2 - d1).days if d1 and d2 else 0
-            df['GG'] = df.apply(get_gg, axis=1)
-            
-            # Tabella principale
-            st.dataframe(df[['Casa', 'Utente', 'Data_Inizio', 'Data_Fine', 'GG', 'Stato']], use_container_width=True, hide_index=True)
+        # CSS Specifico per la Tab Gestione: Font ridotto ma interlinea generosa sui pulsanti
+        st.markdown("""
+            <style>
+                /* Stile per i bottoni di approvazione */
+                div.stButton > button {
+                    font-size: 0.85rem !important;
+                    line-height: 1.5 !important;
+                    padding: 10px 5px !important;
+                    min-height: 70px !important; /* Più alto per facilitare il touch */
+                    margin-bottom: 12px !important; /* Distanza tra una riga e l'altra */
+                    border-radius: 8px !important;
+                    background-color: #f0f2f6;
+                    border: 1px solid #d1d5db;
+                }
+                /* Stile per il testo della prenotazione sopra il bottone */
+                .gestione-info {
+                    font-size: 0.9rem;
+                    line-height: 1.6;
+                    margin-bottom: 4px;
+                    color: #31333F;
+                }
+            </style>
+        """, unsafe_allow_html=True)
 
-            st.divider()
-            col_app, col_del = st.columns(2)
-            
-            with col_app:
-                st.subheader("📥 Approva")
-                da_approvare = df[(df['Utente'] != st.session_state['user_name']) & (df['Stato'] == "In Attesa")]
-                for idx, row in da_approvare.iterrows():
-                    voti = [x.strip() for x in str(row['Voti_Ok']).split(",") if x.strip()]
-                    if st.session_state['user_name'] not in voti:
-                        # FORMATO PULSANTI: Casa - Data_Inizio - Data_Fine - Utente
-                        label_app = f"Approva: {row['Casa']} - {row['Data_Inizio']} - {row['Data_Fine']} - {row['Utente']}"
-                        if st.button(label_app, key=f"ap_{idx}"):
-                            voti.append(st.session_state['user_name'])
-                            df.at[idx, 'Voti_Ok'] = ", ".join(voti)
-                            if len(voti) >= 3: df.at[idx, 'Stato'] = "Confermata"
-                            conn.update(worksheet="Prenotazioni", data=df.drop(columns=['GG']))
-                            st.query_params["tab"] = "1"
-                            st.rerun()
+        st.header("Approvazione Richieste")
+        
+        # Ricarichiamo i dati freschi per evitare di approvare roba già gestita
+        df_gestione = get_data()
+        attesa = df_gestione[df_gestione['Stato'] == "In Attesa"].copy()
 
-            with col_del:
-                st.subheader("🗑️ Elimina le tue")
-                le_mie = df[df['Utente'] == st.session_state['user_name']]
-                for idx, row in le_mie.iterrows():
-                    # FORMATO PULSANTI: Casa - Data_Inizio - Data_Fine - Utente
-                    label_del = f"Cancella: {row['Casa']} - {row['Data_Inizio']} - {row['Data_Fine']} - {row['Utente']}"
-                    if st.button(label_del, key=f"pre_del_{idx}"):
-                        st.session_state[f"conf_del_{idx}"] = True
+        if attesa.empty:
+            st.info("Non ci sono prenotazioni in attesa di conferma.")
+        else:
+            st.warning(f"Ci sono {len(attesa)} richieste da gestire:")
+            
+            for _, r in attesa.iterrows():
+                # Creiamo un box visivo per ogni richiesta
+                with st.container():
+                    # Info testuale con font e interlinea controllati
+                    testo_bottone = f"✅ APPROVA: {r['Casa']} | {r['Utente']}\n📅 {r['Data_Inizio']} - {r['Data_Fine']}"
                     
-                    if st.session_state.get(f"conf_del_{idx}"):
-                        st.error(f"Confermi l'eliminazione?")
-                        c1, c2 = st.columns(2)
-                        if c1.button("SÌ, ELIMINA", key=f"real_del_{idx}"):
-                            df_new = df.drop(idx).drop(columns=['GG'])
-                            conn.update(worksheet="Prenotazioni", data=df_new)
-                            del st.session_state[f"conf_del_{idx}"]
-                            st.query_params["tab"] = "1"
-                            st.rerun()
-                        if c2.button("Annulla", key=f"cancel_{idx}"):
-                            del st.session_state[f"conf_del_{idx}"]
-                            st.rerun()
+                    if st.button(testo_bottone, key=f"btn_{r['ID']}"):
+                        try:
+                            # 1. Recuperiamo il DF aggiornato un'ultima volta (Sicurezza Atomica)
+                            df_ultimo = get_data()
+                            
+                            # 2. Troviamo la riga tramite ID e cambiamo lo stato
+                            if r['ID'] in df_ultimo['ID'].values:
+                                df_ultimo.loc[df_ultimo['ID'] == r['ID'], 'Stato'] = "Confermata"
+                                
+                                # 3. Salvataggio su Google Sheets
+                                conn.update(worksheet="Prenotazioni", data=df_ultimo)
+                                
+                                st.success(f"Prenotazione di {r['Utente']} confermata!")
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error("Errore: Prenotazione non trovata nel database.")
+                        except Exception as e:
+                            st.error(f"Errore durante l'approvazione: {e}")
+                
+                st.markdown("---") # Separatore visivo tra le richieste
 
+        # Sezione opzionale: Elimina Prenotazioni (Solo per l'utente loggato o Admin)
+        st.subheader("I tuoi inserimenti (per modifica/elimina)")
+        miei_dati = df_gestione[df_gestione['Utente'] == st.session_state['user_name']]
+        if not miei_dati.empty:
+            st.dataframe(miei_dati[['Casa', 'Data_Inizio', 'Data_Fine', 'Stato']], use_container_width=True)
+            st.info("Per eliminare o modificare una riga, contatta l'amministratore o agisci direttamente sul Foglio Google.")
  # --- TAB 3: CALENDARIO ---
     with tabs[2]:
         legenda = "".join([f'<span class="legenda-item" style="background:{c["color"]}">{u}</span>' for u, c in utenti_cfg.items()])
