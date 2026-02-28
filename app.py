@@ -11,6 +11,9 @@ st.set_page_config(page_title="Family Booking", page_icon="🏠", layout="wide")
 # --- CSS DEFINITIVO ---
 st.markdown("""
     <style>
+    /* Impedisce parzialmente il pull-to-refresh su alcuni browser mobile */
+    html, body { overflow-y: auto; overscroll-behavior-y: contain; }
+    
     [data-testid="stHeader"] { z-index: 999; }
     .sticky-wrapper {
         position: -webkit-sticky;
@@ -29,13 +32,6 @@ st.markdown("""
     .full-cell { height: 100%; width: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; }
     .legenda-item { display: inline-block; padding: 4px 10px; border-radius: 5px; margin: 2px; color: white; font-size: 11px; font-weight: bold; }
     .stImage > img { border-radius: 10px; }
-    
-    /* Stile per il tasto Logout in alto */
-    .logout-container {
-        display: flex;
-        justify-content: flex-end;
-        padding: 10px;
-    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -76,8 +72,8 @@ if not st.session_state['authenticated']:
             st.rerun()
         else: st.error("PIN errato")
 else:
-    # --- LOGOUT IN ALTO (MODIFICA 1) ---
-    col_info, col_logout = st.columns([0.8, 0.2])
+    # --- LOGOUT IN ALTO ---
+    col_info, col_logout = st.columns([0.7, 0.3])
     with col_info:
         st.write(f"Connesso come: **{st.session_state['user_name']}**")
     with col_logout:
@@ -90,7 +86,7 @@ else:
     
     tab1, tab2, tab3, tab4 = st.tabs(["📅 PRENOTA", "📊 GESTIONE", "🗓️ CALENDARIO", "📈 STATISTICHE"])
 
-    # --- TAB 1: PRENOTA ---
+    # --- TAB 1: PRENOTA (MODIFICA FORM PER STABILITÀ MOBILE) ---
     with tab1:
         st.header("Nuova Prenotazione")
         oggi = datetime.now().date()
@@ -108,34 +104,37 @@ else:
                 st.markdown(f"<span style='color:{color}; font-weight:bold;'>{label}</span>: {r['Data_Inizio']} al {r['Data_Fine']} - {r['Utente']}", unsafe_allow_html=True)
             st.write("---")
 
-        d_in = st.date_input("Check-in", value=oggi + timedelta(days=1), min_value=oggi)
-        d_out = st.date_input("Check-out", value=d_in + timedelta(days=1), min_value=d_in + timedelta(days=1))
-        
-        overlap = False
-        conflitto = ""
-        for _, r in p_casa.iterrows():
-            s_ex = parse_date(r['Data_Inizio'])
-            e_ex = parse_date(r['Data_Fine'])
-            if s_ex and e_ex:
-                if d_in <= e_ex and s_ex <= d_out:
-                    overlap = True
-                    conflitto = f"{r['Utente']} ({r['Data_Inizio']} - {r['Data_Fine']})"
-                    break
-        
-        if overlap:
-            st.error(f"⚠️ DATE GIÀ OCCUPATE da: {conflitto}")
-        else:
-            giorni_calc = (d_out - d_in).days + 1
-            st.success(f"✅ Date disponibili per {giorni_calc} giorni")
+        # FORM PER EVITARE REFRESH CONTINUI
+        with st.form("booking_form", clear_on_submit=True):
+            d_in = st.date_input("Check-in", value=oggi + timedelta(days=1), min_value=oggi)
+            d_out = st.date_input("Check-out", value=d_in + timedelta(days=1), min_value=d_in + timedelta(days=1))
             note = st.text_area("Note")
-            if st.button("🚀 INVIA PRENOTAZIONE"):
-                nuova = pd.DataFrame([{
-                    "ID": str(datetime.now().timestamp()), "Casa": casa_scelta, "Utente": st.session_state['user_name'],
-                    "Data_Inizio": d_in.strftime('%d/%m/%Y'), "Data_Fine": d_out.strftime('%d/%m/%Y'),
-                    "Stato": "In Attesa", "Voti_Ok": "", "Note": note
-                }])
-                conn.update(worksheet="Prenotazioni", data=pd.concat([df, nuova], ignore_index=True))
-                st.success("Inviato!"); time.sleep(1); st.rerun()
+            submit = st.form_submit_button("🚀 INVIA PRENOTAZIONE")
+
+            if submit:
+                overlap = False
+                conflitto = ""
+                for _, r in p_casa.iterrows():
+                    s_ex = parse_date(r['Data_Inizio'])
+                    e_ex = parse_date(r['Data_Fine'])
+                    if s_ex and e_ex:
+                        if d_in <= e_ex and s_ex <= d_out:
+                            overlap = True
+                            conflitto = f"{r['Utente']} ({r['Data_Inizio']} - {r['Data_Fine']})"
+                            break
+                
+                if overlap:
+                    st.error(f"⚠️ DATE GIÀ OCCUPATE da: {conflitto}")
+                else:
+                    nuova = pd.DataFrame([{
+                        "ID": str(datetime.now().timestamp()), "Casa": casa_scelta, "Utente": st.session_state['user_name'],
+                        "Data_Inizio": d_in.strftime('%d/%m/%Y'), "Data_Fine": d_out.strftime('%d/%m/%Y'),
+                        "Stato": "In Attesa", "Voti_Ok": "", "Note": note
+                    }])
+                    conn.update(worksheet="Prenotazioni", data=pd.concat([df, nuova], ignore_index=True))
+                    st.success("Inviato con successo!")
+                    time.sleep(1)
+                    st.rerun()
 
     # --- TAB 2: GESTIONE ---
     with tab2:
@@ -154,7 +153,6 @@ else:
             st.dataframe(df[cols], use_container_width=True, hide_index=True)
             
             st.divider()
-            # MODIFICA 2: ETICHETTE PULSANTI DETTAGLIATE
             st.subheader("🗳️ Approva")
             for idx, row in df.iterrows():
                 if row['Utente'] != st.session_state['user_name'] and row['Stato'] == "In Attesa":
