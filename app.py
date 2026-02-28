@@ -11,9 +11,7 @@ st.set_page_config(page_title="Family Booking", page_icon="🏠", layout="wide")
 # --- CSS DEFINITIVO ---
 st.markdown("""
     <style>
-    /* Impedisce parzialmente il pull-to-refresh su alcuni browser mobile */
     html, body { overflow-y: auto; overscroll-behavior-y: contain; }
-    
     [data-testid="stHeader"] { z-index: 999; }
     .sticky-wrapper {
         position: -webkit-sticky;
@@ -62,7 +60,6 @@ if 'authenticated' not in st.session_state:
 
 if not st.session_state['authenticated']:
     st.title("🏠 Family Booking")
-    st.subheader("🔐 Accesso")
     u_log = st.selectbox("Chi sei?", ["-- Seleziona --"] + list(utenti_config.keys()))
     p_log = st.text_input("Inserisci il PIN", type="password")
     if st.button("Entra"):
@@ -86,7 +83,7 @@ else:
     
     tab1, tab2, tab3, tab4 = st.tabs(["📅 PRENOTA", "📊 GESTIONE", "🗓️ CALENDARIO", "📈 STATISTICHE"])
 
-    # --- TAB 1: PRENOTA (MODIFICA FORM PER STABILITÀ MOBILE) ---
+    # --- TAB 1: PRENOTA ---
     with tab1:
         st.header("Nuova Prenotazione")
         oggi = datetime.now().date()
@@ -104,37 +101,41 @@ else:
                 st.markdown(f"<span style='color:{color}; font-weight:bold;'>{label}</span>: {r['Data_Inizio']} al {r['Data_Fine']} - {r['Utente']}", unsafe_allow_html=True)
             st.write("---")
 
-        # FORM PER EVITARE REFRESH CONTINUI
-        with st.form("booking_form", clear_on_submit=True):
+        with st.form("booking_form"):
             d_in = st.date_input("Check-in", value=oggi + timedelta(days=1), min_value=oggi)
-            d_out = st.date_input("Check-out", value=d_in + timedelta(days=1), min_value=d_in + timedelta(days=1))
+            d_out = st.date_input("Check-out", value=d_in + timedelta(days=1), min_value=oggi) # min_value oggi per permettere selezione
             note = st.text_area("Note")
             submit = st.form_submit_button("🚀 INVIA PRENOTAZIONE")
 
             if submit:
-                overlap = False
-                conflitto = ""
-                for _, r in p_casa.iterrows():
-                    s_ex = parse_date(r['Data_Inizio'])
-                    e_ex = parse_date(r['Data_Fine'])
-                    if s_ex and e_ex:
-                        if d_in <= e_ex and s_ex <= d_out:
-                            overlap = True
-                            conflitto = f"{r['Utente']} ({r['Data_Inizio']} - {r['Data_Fine']})"
-                            break
-                
-                if overlap:
-                    st.error(f"⚠️ DATE GIÀ OCCUPATE da: {conflitto}")
+                # 1. CONTROLLO SEQUENZA DATE (CORREZIONE RICHIESTA)
+                if d_out < d_in:
+                    st.error("❌ Errore: La data di fine non può essere precedente alla data di inizio!")
                 else:
-                    nuova = pd.DataFrame([{
-                        "ID": str(datetime.now().timestamp()), "Casa": casa_scelta, "Utente": st.session_state['user_name'],
-                        "Data_Inizio": d_in.strftime('%d/%m/%Y'), "Data_Fine": d_out.strftime('%d/%m/%Y'),
-                        "Stato": "In Attesa", "Voti_Ok": "", "Note": note
-                    }])
-                    conn.update(worksheet="Prenotazioni", data=pd.concat([df, nuova], ignore_index=True))
-                    st.success("Inviato con successo!")
-                    time.sleep(1)
-                    st.rerun()
+                    # 2. CONTROLLO SOVRAPPOSIZIONI
+                    overlap = False
+                    conflitto = ""
+                    for _, r in p_casa.iterrows():
+                        s_ex = parse_date(r['Data_Inizio'])
+                        e_ex = parse_date(r['Data_Fine'])
+                        if s_ex and e_ex:
+                            if d_in <= e_ex and s_ex <= d_out:
+                                overlap = True
+                                conflitto = f"{r['Utente']} ({r['Data_Inizio']} - {r['Data_Fine']})"
+                                break
+                    
+                    if overlap:
+                        st.error(f"⚠️ DATE GIÀ OCCUPATE da: {conflitto}")
+                    else:
+                        nuova = pd.DataFrame([{
+                            "ID": str(datetime.now().timestamp()), "Casa": casa_scelta, "Utente": st.session_state['user_name'],
+                            "Data_Inizio": d_in.strftime('%d/%m/%Y'), "Data_Fine": d_out.strftime('%d/%m/%Y'),
+                            "Stato": "In Attesa", "Voti_Ok": "", "Note": note
+                        }])
+                        conn.update(worksheet="Prenotazioni", data=pd.concat([df, nuova], ignore_index=True))
+                        st.success(f"✅ Inviato! Prenotazione di {(d_out - d_in).days + 1} giorni registrata.")
+                        time.sleep(1.5)
+                        st.rerun()
 
     # --- TAB 2: GESTIONE ---
     with tab2:
