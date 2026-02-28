@@ -5,10 +5,10 @@ from datetime import datetime, timedelta
 import time
 import os
 
-# --- CONFIGURAZIONE PAGINA (DA DEFINITIVO_1) ---
+# --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Family Booking", page_icon="🏠", layout="wide")
 
-# --- CSS DEFINITIVO (DA DEFINITIVO_1) ---
+# --- CSS DEFINITIVO ---
 st.markdown("""
     <style>
     [data-testid="stHeader"] { z-index: 999; }
@@ -77,14 +77,33 @@ else:
     st.write(f"Connesso come: **{current_user}**")
     tab1, tab2, tab3, tab4 = st.tabs(["📅 PRENOTA", "📊 GESTIONE", "🗓️ CALENDARIO", "📈 STATISTICHE"])
 
-    # --- TAB 1: PRENOTA (MODIFICA 1: CONTROLLO SOVRAPPOSIZIONI) ---
+    # --- TAB 1: PRENOTA ---
     with tab1:
         st.header("Nuova Prenotazione")
         oggi = datetime.now().date()
         casa_scelta = st.selectbox("Scegli la meta", ["NOLI", "LIMONE"])
         
+        # Immagine Casa
         f_nome = "Noli.jpg" if casa_scelta == "NOLI" else "Limone.jpg"
         if os.path.exists(f_nome): st.image(f_nome, width=280)
+
+        # RIPRISTINO VISUALIZZAZIONE PRENOTAZIONI ESISTENTI
+        p_casa = df[df['Casa'] == casa_scelta].copy()
+        if not p_casa.empty:
+            st.write("---")
+            conf = p_casa[p_casa['Stato'] == "Confermata"]
+            atte = p_casa[p_casa['Stato'] == "In Attesa"]
+            
+            if not conf.empty:
+                st.error("🚫 **DATE OCCUPATE (CONFERMATE):**")
+                for _, r in conf.iterrows():
+                    st.write(f"• {r['Data_Inizio']} al {r['Data_Fine']} - {r['Utente']}")
+            
+            if not atte.empty:
+                st.warning("⏳ **RICHIESTE IN ATTESA:**")
+                for _, r in atte.iterrows():
+                    st.write(f"• {r['Data_Inizio']} al {r['Data_Fine']} - {r['Utente']}")
+            st.write("---")
 
         d_in = st.date_input("Check-in", value=oggi + timedelta(days=1), min_value=oggi)
         d_out = st.date_input("Check-out", value=d_in + timedelta(days=1), min_value=d_in + timedelta(days=1))
@@ -92,7 +111,7 @@ else:
         # Logica blocco sovrapposizioni
         overlap = False
         conflitto = ""
-        for _, r in df[df['Casa'] == casa_scelta].iterrows():
+        for _, r in p_casa.iterrows():
             s_ex = parse_date(r['Data_Inizio'])
             e_ex = parse_date(r['Data_Fine'])
             if s_ex and e_ex:
@@ -102,7 +121,7 @@ else:
                     break
         
         if overlap:
-            st.error(f"⚠️ DATE OCCUPATE da: {conflitto}")
+            st.error(f"⚠️ IMPOSSIBILE PRENOTARE: Conflitto con {conflitto}")
         else:
             giorni = (d_out - d_in).days + 1
             st.success(f"✅ Disponibile per {giorni} giorni")
@@ -116,12 +135,11 @@ else:
                 conn.update(worksheet="Prenotazioni", data=pd.concat([df, nuova], ignore_index=True))
                 st.success("Inviato!"); time.sleep(1); st.rerun()
 
-    # --- TAB 2: GESTIONE (MODIFICA 2: GIORNI RICHIESTI) ---
+    # --- TAB 2: GESTIONE ---
     with tab2:
         st.header("Elenco prenotazioni")
         if not df.empty:
             all_u = set(utenti_config.keys())
-            
             def process(row):
                 d1, d2 = parse_date(row['Data_Inizio']), parse_date(row['Data_Fine'])
                 gg = (d2 - d1).days + 1 if d1 and d2 else 0
@@ -130,8 +148,6 @@ else:
                 return pd.Series([gg, ", ".join(v), ", ".join(m)])
 
             df[['Giorni richiesti', 'Approvato', 'Mancano']] = df.apply(process, axis=1)
-            
-            # Tabella con colonna Giorni richiesti dopo Data_Fine
             cols = ['Casa', 'Utente', 'Data_Inizio', 'Data_Fine', 'Giorni richiesti', 'Stato', 'Approvato', 'Mancano']
             st.dataframe(df[cols], use_container_width=True, hide_index=True)
             
@@ -154,7 +170,7 @@ else:
                     df_save = df.drop(idx).drop(columns=['Giorni richiesti', 'Approvato', 'Mancano'])
                     conn.update(worksheet="Prenotazioni", data=df_save); st.rerun()
 
-    # --- TAB 3: CALENDARIO (DA DEFINITIVO_1) ---
+    # --- TAB 3: CALENDARIO ---
     with tab3:
         leg_h = "".join([f'<span class="legenda-item" style="background:{c["color"]}">{u}</span>' for u, c in utenti_config.items()])
         leg_h += '<span class="legenda-item" style="background:#FFFFCC; color:#666; border:1px solid #ffd700">In Attesa</span>'
@@ -196,14 +212,19 @@ else:
                         if c_col > 6: html += "</tr><tr>"; c_col = 0
                     st.markdown(html + "</tr></table>", unsafe_allow_html=True)
 
-    # --- TAB 4: STATISTICHE (DA DEFINITIVO_1) ---
+    # --- TAB 4: STATISTICHE ---
     with tab4:
         st.header("Statistiche")
         if not df.empty:
             df['GG'] = df.apply(lambda r: (parse_date(r['Data_Fine']) - parse_date(r['Data_Inizio'])).days + 1 if parse_date(r['Data_Inizio']) else 0, axis=1)
             c1, c2 = st.columns(2)
-            with c1: st.metric("NOLI 🏖️", f"{df[(df['Casa'] == 'NOLI') & (df['Stato'] == 'Confermata')]['GG'].sum()} gg")
-            with c2: st.metric("LIMONE 🏔️", f"{df[(df['Casa'] == 'LIMONE') & (df['Stato'] == 'Confermata')]['GG'].sum()} gg")
+            with c1:
+                if os.path.exists("Noli.jpg"): st.image("Noli.jpg", width=150) # FOTO RIPRISTINATA
+                st.metric("NOLI 🏖️", f"{df[(df['Casa'] == 'NOLI') & (df['Stato'] == 'Confermata')]['GG'].sum()} gg")
+            with c2:
+                if os.path.exists("Limone.jpg"): st.image("Limone.jpg", width=150) # FOTO RIPRISTINATA
+                st.metric("LIMONE 🏔️", f"{df[(df['Casa'] == 'LIMONE') & (df['Stato'] == 'Confermata')]['GG'].sum()} gg")
+            
             st.divider()
             stats = []
             for u in utenti_config.keys():
