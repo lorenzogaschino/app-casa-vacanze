@@ -167,77 +167,96 @@ else:
                             st.error(f"Errore tecnico durante il salvataggio: {e}")
 # --- TAB 2: GESTIONE ---
     with tabs[1]:
-        st.markdown("""
-            <style>
-                .stDataFrame { font-size: 12px !important; }
-                div.stButton > button { 
-                    font-size: 0.85rem !important; 
-                    padding: 5px 10px !important; 
-                    width: 100% !important;
-                }
-            </style>
-        """, unsafe_allow_html=True)
-
         st.header("Gestione e Approvazioni")
-        
-        # 1. VISUALIZZAZIONE DATABASE COMPLETO
-        st.subheader("Tutte le Prenotazioni")
-        df_gestione = get_data() 
-        # Ripristinate tutte le colonne necessarie per il controllo
-        st.dataframe(
-            df_gestione[['Casa', 'Utente', 'Data_Inizio', 'Data_Fine', 'Stato', 'Note']], 
-            use_container_width=True,
-            hide_index=True
-        )
-        
-        st.divider()
 
-        # 2. SEZIONE APPROVAZIONE (CON FILTRO DI SICUREZZA)
-        st.subheader("Richieste da Approvare")
-        # Filtro: Stato "In Attesa" E l'utente loggato NON deve essere l'autore della richiesta
-        attesa = df_gestione[
-            (df_gestione['Stato'] == "In Attesa") & 
-            (df_gestione['Utente'] != st.session_state['user_name'])
-        ].copy()
+        # 1. CARICAMENTO DATI E CONFIGURAZIONE
+        # Assicurati che questi nomi siano IDENTICI a quelli usati nella Tab 1
+        UTENTI_TOTALI = ["Chiara", "Lorenzo", "Gianluca", "Utente4"] 
+        df_gestione = get_data() # Funzione che legge il tuo Google Sheet
 
-        if attesa.empty:
-            st.info("Nessuna richiesta altrui in sospeso da approvare.")
-        else:
-            st.warning(f"Hai {len(attesa)} richieste da gestire:")
-            for _, r in attesa.iterrows():
-                st.markdown(f"🏠 **{r['Casa']}** | 👤 **{r['Utente']}**")
-                st.caption(f"📅 {r['Data_Inizio']} - {r['Data_Fine']} | 📝 {r['Note']}")
+        if not df_gestione.empty:
+            df = df_gestione.copy()
+
+            # --- LOGICA DI CALCOLO DINAMICO ---
+            def processa_approvazioni(row):
+                creatore = row['Utente']
+                # Gestione colonna Voti_OK (Colonna E)
+                voti_str = str(row['Voti_OK']) if pd.notna(row['Voti_OK']) and str(row['Voti_OK']) != 'nan' else ""
+                voti_fatti = [v.strip() for v in voti_str.split(',') if v.strip()]
                 
-                if st.button(f"✅ CONFERMA PRENOTAZIONE DI {r['Utente'].upper()}", key=f"conf_{r['ID']}"):
-                    df_ultimo = get_data()
-                    if r['ID'] in df_ultimo['ID'].values:
-                        df_ultimo.loc[df_ultimo['ID'] == r['ID'], 'Stato'] = "Confermata"
-                        conn.update(worksheet="Prenotazioni", data=df_ultimo)
-                        st.success(f"Prenotazione confermata!")
-                        time.sleep(1)
+                # Chi deve votare (i 3 utenti che NON hanno creato la prenotazione)
+                altri_utenti = [u for u in UTENTI_TOTALI if u != creatore]
+                mancano = [u for u in altri_utenti if u not in voti_fatti]
+                
+                # Stato: Confermata solo se tutti e 3 hanno votato
+                stato_calcolato = "Confermata" if len(mancano) == 0 else "Richiesta"
+                
+                return pd.Series([
+                    ", ".join(voti_fatti) if voti_fatti else "Nessuno",
+                    ", ".join(mancano) if mancano else "Completo",
+                    stato_calcolato
+                ])
+
+            # Creiamo le colonne virtuali per la visualizzazione
+            df[['Chi_ha_approvato', 'Mancano', 'Stato_Reale']] = df.apply(processa_approvazioni, axis=1)
+
+            st.subheader("Tutte le Prenotazioni")
+            cols_to_show = ['Casa', 'Utente', 'Data_Inizio', 'Data_Fine', 'Stato_Reale', 'Chi_ha_approvato', 'Mancano']
+            st.dataframe(df[cols_to_show], use_container_width=True, hide_index=True)
+
+            st.divider()
+
+            # 2. SEZIONE AZIONE: REGISTRA VOTO
+            st.subheader("Registra la tua Approvazione")
+            
+            # Identifichiamo l'utente (puoi usare un selectbox o la session_state)
+            mio_nome = st.selectbox("Seleziona il tuo nome per approvare:", [""] + UTENTI_TOTALI)
+            
+            # Filtriamo le prenotazioni dove:
+            # - Lo stato è "Richiesta"
+            # - L'utente loggato NON è il creatore
+            # - L'utente loggato NON ha già votato
+            def puo_votare(row, nome):
+                voti_str = str(row['Voti_OK']) if pd.notna(row['Voti_OK']) else ""
+                return nome != "" and row['Utente'] != nome and nome not in voti_str
+
+            p_pendenti = df[df.apply(lambda r: puo_votare(r, mio_nome), axis=1)]
+
+            if not p_pendenti.empty and mio_nome != "":
+                opzioni = p_pendenti.apply(lambda x: f"ID: {x['ID']} - {x['Casa']} ({x['Data_Inizio']})", axis=1).tolist()
+                scelta = st.selectbox("Quale prenotazione vuoi approvare?", opzioni)
+                
+                if st.button("Conferma Approvazione"):
+                    # Recuperiamo i dati della riga selezionata
+                    idx_originale = p_pendenti.index[opzioni.index(scelta)]
+                    row_sel = df.loc[idx_originale]
+                    
+                    # Prepariamo la nuova stringa dei voti
+                    voti_vecchi = str(row_sel['Voti_OK']) if pd.notna(row_sel['Voti_OK']) and str(row_sel['Voti_OK']) != 'nan' else ""
+                    nuovi_voti = f"{voti_vecchi}, {mio_nome}".strip(", ")
+                    
+                    # Calcoliamo il nuovo stato finale
+                    # Se con questo voto arriviamo a 3 approvatori, scriviamo "Confermata"
+                    num_approvatori = len([v.strip() for v in nuovi_voti.split(',') if v.strip()])
+                    nuovo_stato = "Confermata" if num_approvatori >= 3 else "Richiesta"
+
+                    # --- FUNZIONE DI SCRITTURA SUL GOOGLE SHEET ---
+                    try:
+                        # Calcolo riga: ID + 1 (se l'ID 1 è alla riga 2 del foglio)
+                        riga_sheet = int(row_sel['ID']) + 1 
+                        
+                        # AGGIORNAMENTO COLONNA E (Voti_OK) -> indice 5
+                        # AGGIORNAMENTO COLONNA F (Stato)    -> indice 6
+                        sheet.update_cell(riga_sheet, 5, nuovi_voti)
+                        sheet.update_cell(riga_sheet, 6, nuovo_stato)
+                        
+                        st.success(f"Approvazione registrata! Stato: {nuovo_stato}")
+                        st.balloons()
                         st.rerun()
-                st.divider()
-
-        # 3. SEZIONE ELIMINAZIONE (SOLO I PROPRI INSERIMENTI)
-        st.subheader("Elimina le tue prenotazioni")
-        # Qui l'utente vede solo le SUE, che può eliminare ma non approvare
-        mie_prenotazioni = df_gestione[df_gestione['Utente'] == st.session_state['user_name']]
-        
-        if mie_prenotazioni.empty:
-            st.write("Non hai prenotazioni attive da eliminare.")
-        else:
-            for _, r in mie_prenotazioni.iterrows():
-                st.markdown(f"🏠 **{r['Casa']}** | 📅 {r['Data_Inizio']} - {r['Data_Fine']}")
-                st.caption(f"Stato attuale: {r['Stato']}")
-                
-                if st.button(f"🗑️ ELIMINA LA MIA PRENOTAZIONE", key=f"del_{r['ID']}"):
-                    df_ultimo = get_data()
-                    df_nuovo = df_ultimo[df_ultimo['ID'] != r['ID']]
-                    conn.update(worksheet="Prenotazioni", data=df_nuovo)
-                    st.warning("Prenotazione eliminata.")
-                    time.sleep(1)
-                    st.rerun()
-                st.divider()
+                    except Exception as e:
+                        st.error(f"Errore nell'aggiornamento: {e}")
+            elif mio_nome != "":
+                st.info(f"Ottimo {mio_nome}, non ci sono prenotazioni degli altri che devi approvare!")
     
  # --- TAB 3: CALENDARIO ---
     with tabs[2]:
