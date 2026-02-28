@@ -299,21 +299,21 @@ else:
                         html += "<td></td>" * (7 - c_col)
                         
                     st.markdown(html + "</tr></table>", unsafe_allow_html=True)
- # --- TAB 4: STATISTICHE ---
+# --- TAB 4: STATISTICHE ---
     with tabs[3]:
         st.header("Analisi Occupazione 2026")
         
-        # CSS Definitivo: Bersaglia direttamente i contenitori delle immagini
+        # CSS Definitivo: Layout 50/50 e icone piccole
         st.markdown("""
             <style>
-                /* Forza le colonne affiancate al 50% */
+                /* Forza le colonne affiancate al 50% su mobile */
                 [data-testid="column"] {
                     width: 50% !important;
                     flex: 1 1 50% !important;
                     min-width: 50% !important;
                 }
                 
-                /* Rimpicciolisce drasticamente le foto trasformandole in 'thumbnail' */
+                /* Icone piccole (thumbnail) */
                 [data-testid="stImage"] img {
                     max-height: 100px !important;
                     width: auto !important;
@@ -344,10 +344,9 @@ else:
         with c1:
             img_noli = "Noli.jpg" if os.path.exists("Noli.jpg") else "noli.jpg"
             if os.path.exists(img_noli):
-                st.image(img_noli, use_container_width=False) # False per non forzare la larghezza piena
+                st.image(img_noli, use_container_width=False)
             
             noli_conf = df_stats[(df_stats['Casa'] == 'NOLI') & (df_stats['Stato'] == 'Confermata')]['GG'].sum()
-            # FIX BUG: label non può essere None, usiamo stringa vuota
             st.metric(label="NOLI 🏖️", value=f"{int(noli_conf)} gg")
             
         with c2:
@@ -356,7 +355,6 @@ else:
                 st.image(img_limone, use_container_width=False)
                 
             limone_conf = df_stats[(df_stats['Casa'] == 'LIMONE') & (df_stats['Stato'] == 'Confermata')]['GG'].sum()
-            # FIX BUG: label non può essere None, usiamo stringa vuota
             st.metric(label="LIMONE 🏔️", value=f"{int(limone_conf)} gg")
             
         st.divider()
@@ -364,17 +362,21 @@ else:
         # --- TABELLA RIEPILOGO ---
         st.subheader("Riepilogo Utente")
         
+        # 1. Calcolo Confermati
         conf_u = df_stats[df_stats['Stato'] == 'Confermata'].groupby('Utente')['GG'].sum().reset_index()
-        conf_u.columns = ['Utente', 'Conf.🔴']
+        conf_u.columns = ['Utente', 'Confermati 🔴']
         
+        # 2. Calcolo Richiesti (Tutto ciò che non è confermato)
         rich_u = df_stats[df_stats['Stato'] != 'Confermata'].groupby('Utente')['GG'].sum().reset_index()
-        rich_u.columns = ['Utente', 'Rich.⏳']
+        rich_u.columns = ['Utente', 'Richiesti ⏳']
         
+        # 3. Unione e Pulizia
         tutti_utenti = pd.DataFrame({'Utente': list(utenti_cfg.keys())})
         final_stats = pd.merge(tutti_utenti, conf_u, on='Utente', how='left')
         final_stats = pd.merge(final_stats, rich_u, on='Utente', how='left').fillna(0)
         
-        final_stats['Confermati.🔴'] = final_stats['Confermati.🔴'].astype(int)
-        final_stats['Richiesti.⏳'] = final_stats['Richiesti.⏳'].astype(int)
+        final_stats['Confermati 🔴'] = final_stats['Confermati 🔴'].astype(int)
+        final_stats['Richiesti ⏳'] = final_stats['Richiesti ⏳'].astype(int)
         
-        st.table(final_stats.sort_values(by='Conf.🔴', ascending=False))
+        # Tabella ordinata per i confermati
+        st.table(final_stats.sort_values(by='Confermati 🔴', ascending=False))
