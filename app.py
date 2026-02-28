@@ -46,24 +46,17 @@ def parse_date(d_str):
     try: return datetime.strptime(d_str, '%d/%m/%Y').date()
     except: return None
 
-# --- CONFIGURAZIONE UTENTI ---
-utenti_config = {
-    "Anita": {"pin": "1111", "color": "#FF4B4B"},
-    "Chiara": {"pin": "4444", "color": "#FFC0CB"},
-    "Lorenzo": {"pin": "1234", "color": "#1C83E1"},
-    "Gianluca": {"pin": "1191", "color": "#28A745"}
-}
-icone_case = {"LIMONE": "🏔️", "NOLI": "🏖️"}
-
-if 'authenticated' not in st.session_state:
-    st.session_state['authenticated'] = False
+# --- GESTIONE SESSIONE E LOGIN ---
+if 'authenticated' not in st.session_state: st.session_state['authenticated'] = False
+if 'active_tab' not in st.session_state: st.session_state['active_tab'] = 0
 
 if not st.session_state['authenticated']:
     st.title("🏠 Family Booking")
-    u_log = st.selectbox("Chi sei?", ["-- Seleziona --"] + list(utenti_config.keys()))
+    utenti_log = {"Anita": "1111", "Chiara": "4444", "Lorenzo": "1234", "Gianluca": "1191"}
+    u_log = st.selectbox("Chi sei?", ["-- Seleziona --"] + list(utenti_log.keys()))
     p_log = st.text_input("Inserisci il PIN", type="password")
     if st.button("Entra"):
-        if u_log != "-- Seleziona --" and p_log == utenti_config[u_log]["pin"]:
+        if u_log != "-- Seleziona --" and p_log == utenti_log[u_log]:
             st.session_state['authenticated'] = True
             st.session_state['user_name'] = u_log
             st.rerun()
@@ -71,8 +64,7 @@ if not st.session_state['authenticated']:
 else:
     # --- LOGOUT IN ALTO ---
     col_info, col_logout = st.columns([0.7, 0.3])
-    with col_info:
-        st.write(f"Connesso come: **{st.session_state['user_name']}**")
+    with col_info: st.write(f"Connesso come: **{st.session_state['user_name']}**")
     with col_logout:
         if st.button("🔴 Logout", key="top_logout"):
             st.session_state['authenticated'] = False
@@ -80,11 +72,15 @@ else:
 
     df = get_data()
     conn = st.connection("gsheets", type=GSheetsConnection)
+    utenti_config = {"Anita": {"color": "#FF4B4B"}, "Chiara": {"color": "#FFC0CB"}, "Lorenzo": {"color": "#1C83E1"}, "Gianluca": {"color": "#28A745"}}
+    icone_case = {"LIMONE": "🏔️", "NOLI": "🏖️"}
     
-    tab1, tab2, tab3, tab4 = st.tabs(["📅 PRENOTA", "📊 GESTIONE", "🗓️ CALENDARIO", "📈 STATISTICHE"])
+    # Navigazione Tab con memoria
+    tab_list = ["📅 PRENOTA", "📊 GESTIONE", "🗓️ CALENDARIO", "📈 STATISTICHE"]
+    tabs = st.tabs(tab_list)
 
     # --- TAB 1: PRENOTA ---
-    with tab1:
+    with tabs[0]:
         st.header("Nuova Prenotazione")
         oggi = datetime.now().date()
         casa_scelta = st.selectbox("Scegli la meta", ["NOLI", "LIMONE"])
@@ -103,29 +99,19 @@ else:
 
         with st.form("booking_form"):
             d_in = st.date_input("Check-in", value=oggi + timedelta(days=1), min_value=oggi)
-            d_out = st.date_input("Check-out", value=d_in + timedelta(days=1), min_value=oggi) # min_value oggi per permettere selezione
+            d_out = st.date_input("Check-out", value=d_in + timedelta(days=1), min_value=oggi)
             note = st.text_area("Note")
-            submit = st.form_submit_button("🚀 INVIA PRENOTAZIONE")
-
-            if submit:
-                # 1. CONTROLLO SEQUENZA DATE (CORREZIONE RICHIESTA)
+            if st.form_submit_button("🚀 INVIA PRENOTAZIONE"):
                 if d_out < d_in:
                     st.error("❌ Errore: La data di fine non può essere precedente alla data di inizio!")
                 else:
-                    # 2. CONTROLLO SOVRAPPOSIZIONI
                     overlap = False
-                    conflitto = ""
                     for _, r in p_casa.iterrows():
-                        s_ex = parse_date(r['Data_Inizio'])
-                        e_ex = parse_date(r['Data_Fine'])
-                        if s_ex and e_ex:
-                            if d_in <= e_ex and s_ex <= d_out:
-                                overlap = True
-                                conflitto = f"{r['Utente']} ({r['Data_Inizio']} - {r['Data_Fine']})"
-                                break
-                    
+                        s_ex, e_ex = parse_date(r['Data_Inizio']), parse_date(r['Data_Fine'])
+                        if s_ex and e_ex and d_in <= e_ex and s_ex <= d_out:
+                            overlap = True; break
                     if overlap:
-                        st.error(f"⚠️ DATE GIÀ OCCUPATE da: {conflitto}")
+                        st.error("⚠️ DATE GIÀ OCCUPATE!")
                     else:
                         nuova = pd.DataFrame([{
                             "ID": str(datetime.now().timestamp()), "Casa": casa_scelta, "Utente": st.session_state['user_name'],
@@ -133,12 +119,10 @@ else:
                             "Stato": "In Attesa", "Voti_Ok": "", "Note": note
                         }])
                         conn.update(worksheet="Prenotazioni", data=pd.concat([df, nuova], ignore_index=True))
-                        st.success(f"✅ Inviato! Prenotazione di {(d_out - d_in).days + 1} giorni registrata.")
-                        time.sleep(1.5)
-                        st.rerun()
+                        st.success("✅ Prenotazione registrata!"); time.sleep(1); st.rerun()
 
     # --- TAB 2: GESTIONE ---
-    with tab2:
+    with tabs[1]:
         st.header("Elenco prenotazioni")
         if not df.empty:
             all_u = set(utenti_config.keys())
@@ -150,36 +134,48 @@ else:
                 return pd.Series([gg, ", ".join(v), ", ".join(m)])
 
             df[['Giorni richiesti', 'Approvato', 'Mancano']] = df.apply(process_row, axis=1)
-            cols = ['Casa', 'Utente', 'Data_Inizio', 'Data_Fine', 'Giorni richiesti', 'Stato', 'Approvato', 'Mancano']
-            st.dataframe(df[cols], use_container_width=True, hide_index=True)
+            st.dataframe(df[['Casa', 'Utente', 'Data_Inizio', 'Data_Fine', 'Giorni richiesti', 'Stato', 'Approvato', 'Mancano']], use_container_width=True, hide_index=True)
             
             st.divider()
-            st.subheader("🗳️ Approva")
+            st.subheader("🗳️ Azioni")
+            
             for idx, row in df.iterrows():
+                # APPROVAZIONE
                 if row['Utente'] != st.session_state['user_name'] and row['Stato'] == "In Attesa":
                     v_list = [x.strip() for x in str(row['Voti_Ok']).split(",") if x.strip()]
                     if st.session_state['user_name'] not in v_list:
-                        label_approva = f"Approva: {row['Casa']} | {row['Data_Inizio']} - {row['Data_Fine']} | ({row['Utente']})"
-                        if st.button(label_approva, key=f"v_{idx}"):
+                        if st.button(f"Approva: {row['Casa']} | {row['Data_Inizio']} - {row['Data_Fine']} ({row['Utente']})", key=f"app_{idx}"):
                             v_list.append(st.session_state['user_name'])
                             df.at[idx, 'Voti_Ok'] = ", ".join(v_list)
                             if len(v_list) >= 3: df.at[idx, 'Stato'] = "Confermata"
                             conn.update(worksheet="Prenotazioni", data=df.drop(columns=['Giorni richiesti', 'Approvato', 'Mancano']))
                             st.rerun()
-            
-            st.subheader("🗑️ Elimina le tue")
-            for idx, row in df[df['Utente'] == st.session_state['user_name']].iterrows():
-                label_elimina = f"Cancella: {row['Casa']} | {row['Data_Inizio']} - {row['Data_Fine']}"
-                if st.button(label_elimina, key=f"del_{idx}"):
-                    df_save = df.drop(idx).drop(columns=['Giorni richiesti', 'Approvato', 'Mancano'])
-                    conn.update(worksheet="Prenotazioni", data=df_save); st.rerun()
+                
+                # CANCELLAZIONE CON DOPPIO STEP (MODIFICA RICHIESTA)
+                if row['Utente'] == st.session_state['user_name']:
+                    btn_key = f"del_step1_{idx}"
+                    confirm_key = f"del_confirm_{idx}"
+                    
+                    if st.button(f"🗑️ Cancella: {row['Casa']} | {row['Data_Inizio']} - {row['Data_Fine']}", key=btn_key):
+                        st.session_state[f"confirm_delete_{idx}"] = True
+                    
+                    if st.session_state.get(f"confirm_delete_{idx}"):
+                        st.warning("⚠️ Sei sicuro di voler eliminare questa prenotazione?")
+                        if st.button("✅ SÌ, CONFERMA ELIMINAZIONE", key=confirm_key):
+                            df_save = df.drop(idx).drop(columns=['Giorni richiesti', 'Approvato', 'Mancano'])
+                            conn.update(worksheet="Prenotazioni", data=df_save)
+                            del st.session_state[f"confirm_delete_{idx}"]
+                            st.rerun()
+                        if st.button("❌ ANNULLA", key=f"cancel_{idx}"):
+                            del st.session_state[f"confirm_delete_{idx}"]
+                            st.rerun()
 
     # --- TAB 3: CALENDARIO ---
-    with tab3:
+    with tabs[2]:
         leg_h = "".join([f'<span class="legenda-item" style="background:{c["color"]}">{u}</span>' for u, c in utenti_config.items()])
         leg_h += '<span class="legenda-item" style="background:#FFFFCC; color:#666; border:1px solid #ffd700">In Attesa</span>'
         st.markdown(f'<div class="sticky-wrapper"><h3 style="margin:0;">🗓️ Calendario 2026</h3>{leg_h}</div>', unsafe_allow_html=True)
-
+        # ... (Logica calendario invariata da Definitivo_1)
         occupied = {}
         for _, r in df.sort_values(by="Stato", ascending=False).iterrows():
             s, e = parse_date(r['Data_Inizio']), parse_date(r['Data_Fine'])
@@ -189,7 +185,6 @@ else:
                     if curr not in occupied or (occupied[curr]['s'] == "In Attesa" and r['Stato'] == "Confermata"):
                         occupied[curr] = {"u": r['Utente'], "c": r['Casa'], "s": r['Stato']}
                     curr += timedelta(days=1)
-
         for riga in range(6):
             cols = st.columns(2)
             for box in range(2):
@@ -217,7 +212,7 @@ else:
                     st.markdown(html + "</tr></table>", unsafe_allow_html=True)
 
     # --- TAB 4: STATISTICHE ---
-    with tab4:
+    with tabs[3]:
         st.header("Statistiche")
         if not df.empty:
             df['GG'] = df.apply(lambda r: (parse_date(r['Data_Fine']) - parse_date(r['Data_Inizio'])).days + 1 if parse_date(r['Data_Inizio']) else 0, axis=1)
