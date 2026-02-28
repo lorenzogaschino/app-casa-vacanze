@@ -66,10 +66,20 @@ else:
 
     tabs = st.tabs(["📅 PRENOTA", "📊 GESTIONE", "🗓️ CALENDARIO", "📈 STATISTICHE"])
 
-   # --- TAB 1: PRENOTA (Sostituisci tutto il contenuto di with tabs[0]:) ---
+  # --- TAB 1: PRENOTA ---
     with tabs[0]:
         st.header("Nuova Prenotazione")
         casa_scelta = st.selectbox("Scegli la meta", ["NOLI", "LIMONE"])
+        
+        # FIX FOTO: Forza il check del case-sensitive per i file OS
+        img_path = f"{casa_scelta.capitalize()}.jpg"
+        if os.path.exists(img_path):
+            st.image(img_path, width=350)
+        else:
+            # Fallback se il file è tutto minuscolo (noli.jpg)
+            img_path_low = f"{casa_scelta.lower()}.jpg"
+            if os.path.exists(img_path_low):
+                st.image(img_path_low, width=350)
         
         st.subheader("Stato attuale")
         p_casa = df[df['Casa'] == casa_scelta].copy()
@@ -82,12 +92,18 @@ else:
 
         with st.form("booking_form"):
             oggi = datetime.now().date()
+            # 1. Input data inizio
             d_in = st.date_input("Check-in", value=oggi + timedelta(days=1), min_value=oggi)
+            
+            # 2. Input data fine (il vincolo min_value impedisce la selezione di date precedenti a d_in)
             d_out = st.date_input("Check-out", value=d_in + timedelta(days=1), min_value=d_in + timedelta(days=1))
+            
             note = st.text_area("Note")
             
-            if st.form_submit_button("🚀 INVIA PRENOTAZIONE"):
-                # LOGICA SOVRAPPOSIZIONE BLINDATA
+            submit = st.form_submit_button("🚀 INVIA PRENOTAZIONE")
+            
+            if submit:
+                # LOGICA SOVRAPPOSIZIONE
                 sovrapposizione = False
                 for _, r in p_casa.iterrows():
                     s_ex, e_ex = parse_date(r['Data_Inizio']), parse_date(r['Data_Fine'])
@@ -97,20 +113,31 @@ else:
                             sovrapposizione = True
                             break
                 
-                if sovrapposizione:
-                    st.error("⚠️ Errore: Le date scelte si sovrappongono a una prenotazione esistente!")
+                if d_out <= d_in:
+                    st.error("❌ La data di Check-out deve essere successiva al Check-in")
+                elif sovrapposizione:
+                    st.error("⚠️ Errore: Le date sono già occupate da un'altra prenotazione (Confermata o In Attesa)!")
                 else:
                     nuova = pd.DataFrame([{
-                        "ID": str(datetime.now().timestamp()), "Casa": casa_scelta, "Utente": st.session_state['user_name'],
-                        "Data_Inizio": d_in.strftime('%d/%m/%Y'), "Data_Fine": d_out.strftime('%d/%m/%Y'),
-                        "Stato": "In Attesa", "Voti_Ok": "", "Note": note
+                        "ID": str(datetime.now().timestamp()), 
+                        "Casa": casa_scelta, 
+                        "Utente": st.session_state['user_name'],
+                        "Data_Inizio": d_in.strftime('%d/%m/%Y'), 
+                        "Data_Fine": d_out.strftime('%d/%m/%Y'),
+                        "Stato": "In Attesa", 
+                        "Voti_Ok": "", 
+                        "Note": note
                     }])
-                    conn.update(worksheet="Prenotazioni", data=pd.concat([df, nuova], ignore_index=True))
-                    st.balloons()
-                    st.success("Richiesta inviata!")
-                    time.sleep(1)
-                    st.rerun()
-
+                    # Aggiornamento GSHEETS
+                    try:
+                        updated_df = pd.concat([df, nuova], ignore_index=True)
+                        conn.update(worksheet="Prenotazioni", data=updated_df)
+                        st.balloons()
+                        st.success("✅ Richiesta inviata con successo!")
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Errore durante il salvataggio: {e}")
     # --- TAB 2: GESTIONE ---
     with tabs[1]:
         st.header("Gestione Prenotazioni")
@@ -165,26 +192,30 @@ else:
                             del st.session_state[f"conf_del_{idx}"]
                             st.rerun()
 
- # --- TAB 3: CALENDARIO (Sostituisci tutto il contenuto di with tabs[2]:) ---
+ # --- TAB 3: CALENDARIO ---
     with tabs[2]:
         legenda = "".join([f'<span class="legenda-item" style="background:{c["color"]}">{u}</span>' for u, c in utenti_cfg.items()])
         st.markdown(f"🗓️ 2026 | {legenda} | <span class='legenda-item' style='background:#FFFFCC; color:#666; border:1px solid #ccc'>In Attesa</span>", unsafe_allow_html=True)
         
+        # Mappa occupazione: usiamo (data, casa) come chiave per non sovrapporre Noli e Limone
         occ = {}
-        # Ordiniamo per Stato in modo che le 'Confermate' sovrascrivano le 'In Attesa' nella mappa visiva
-        for _, r in df.sort_values(by="Stato", ascending=False).iterrows():
+        # Ordiniamo per Stato (In Attesa prima, Confermate dopo) così le confermate hanno la priorità visiva
+        df_sorted = df.sort_values(by="Stato", ascending=True)
+        
+        for _, r in df_sorted.iterrows():
             s, e = parse_date(r['Data_Inizio']), parse_date(r['Data_Fine'])
             if s and e:
                 curr = s
                 while curr < e:
-                    if curr not in occ or (occ[curr]['s'] == "In Attesa" and r['Stato'] == "Confermata"):
-                        occ[curr] = {"u": r['Utente'], "c": r['Casa'], "s": r['Stato']}
+                    # Chiave doppia: data + casa
+                    occ[(curr, r['Casa'])] = {"u": r['Utente'], "s": r['Stato']}
                     curr += timedelta(days=1)
         
         for riga in range(6):
             cols = st.columns(2)
             for box in range(2):
                 m = riga * 2 + box + 1
+                if m > 12: continue
                 with cols[box]:
                     m_date = datetime(2026, m, 1).date()
                     st.write(f"**{m_date.strftime('%B').upper()}**")
@@ -193,27 +224,51 @@ else:
                     wd = m_date.weekday() # 0=Lunedì
                     html += "<td></td>" * wd
                     
-                    # Calcolo dinamico dell'ultimo giorno del mese
+                    # Calcolo esatto fine mese
                     if m == 12: last_day = 31
                     else: last_day = (datetime(2026, m+1, 1).date() - timedelta(days=1)).day
                     
                     c_col = wd
                     for d in range(1, last_day + 1):
                         d_obj = m_date.replace(day=d)
-                        bg, content = "", f"<div class='day-num'>{d}</div>"
-                        if d_obj in occ:
-                            inf = occ[d_obj]
-                            if inf['s'] == "Confermata":
-                                bg = f"background-color: {utenti_cfg[inf['u']]['color']}; color: white;"
+                        bg = ""
+                        icona = ""
+                        
+                        # Controllo se il giorno è occupato in ALMENO una delle due case
+                        res_noli = occ.get((d_obj, "NOLI"))
+                        res_limone = occ.get((d_obj, "LIMONE"))
+                        
+                        # Priorità cromatica: se c'è almeno una confermata, usa il colore dell'utente
+                        # Se sono entrambe in attesa, usa il giallino
+                        disponibile = True
+                        if res_noli or res_limone:
+                            disponibile = False
+                            # Scegliamo quale colore mostrare (priorità a chi ha confermato)
+                            res = res_noli if res_noli else res_limone
+                            if res_noli and res_noli['s'] == "Confermata": res = res_noli
+                            elif res_limone and res_limone['s'] == "Confermata": res = res_limone
+                            
+                            if res['s'] == "Confermata":
+                                bg = f"background-color: {utenti_cfg[res['u']]['color']}; color: white;"
                             else:
                                 bg = "background-color: #FFFFCC; color: #666; border: 1px dashed #FFD700;"
-                            content += f"<div class='full-cell'>{'🏖️' if inf['c']=='NOLI' else '🏔️'}</div>"
-                        
+                            
+                            # Icone: mostriamo cosa è occupato
+                            if res_noli: icona += "🏖️"
+                            if res_limone: icona += "🏔️"
+
+                        content = f"<div class='day-num'>{d}</div><div class='full-cell'>{icona}</div>"
                         html += f"<td class='cal-td' style='{bg}'>{content}</td>"
+                        
                         c_col += 1
                         if c_col > 6:
                             html += "</tr><tr>"
                             c_col = 0
+                    
+                    # Chiudi le celle mancanti a fine mese per mantenere i bordi puliti
+                    if c_col != 0:
+                        html += "<td></td>" * (7 - c_col)
+                        
                     st.markdown(html + "</tr></table>", unsafe_allow_html=True)
     # --- TAB 4: STATISTICHE ---
     with tabs[3]:
