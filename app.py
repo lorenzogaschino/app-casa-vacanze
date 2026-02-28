@@ -165,110 +165,128 @@ else:
                             st.rerun()
                         except Exception as e:
                             st.error(f"Errore tecnico durante il salvataggio: {e}")
+# --- CONFIGURAZIONE TAB CON PERSISTENZA ---
+# L'attributo 'key' mantiene l'utente su questa pagina dopo il click dei tasti
+tabs = st.tabs(["📅 PRENOTA", "📊 GESTIONE", "🗓️ CALENDARIO", "📈 STATISTICHE"], key="main_navigation")
+
 # --- TAB 2: GESTIONE ---
-    with tabs[1]:
-        st.markdown("""
-            <style>
-                .stDataFrame { font-size: 12px !important; }
-                div.stButton > button { font-size: 0.85rem !important; padding: 5px 10px !important; }
-            </style>
-        """, unsafe_allow_html=True)
+with tabs[1]:
+    # CSS per Mobile: pulsanti larghi, arrotondati e testo leggibile
+    st.markdown("""
+        <style>
+            div.stButton > button {
+                width: 100% !important;
+                height: 3.8em !important;
+                margin-top: 10px !important;
+                border-radius: 15px !important;
+                font-weight: bold !important;
+                border: 1px solid #ddd !important;
+            }
+            .stDataFrame { font-size: 11px !important; }
+        </style>
+    """, unsafe_allow_html=True)
 
-        st.header("Gestione e Approvazioni")
+    st.header("Gestione e Approvazioni")
 
-        # 1. CARICAMENTO DATI
-        df_gestione = get_data()
-        UTENTI_TOTALI = ["Chiara", "Lorenzo", "Gianluca", "Utente4"] # Sostituisci Utente4 con il nome reale
+    # 1. CARICAMENTO DATI
+    df_gestione = get_data()
+    UTENTI_TOTALI = ["Chiara", "Lorenzo", "Gianluca", "Anita"] 
+    mio_nome = st.session_state.get('username', 'Chiara') 
 
-        if not df_gestione.empty:
-            df = df_gestione.copy()
+    if not df_gestione.empty:
+        df = df_gestione.copy()
+        df.columns = [c.strip() for c in df.columns]
+        col_voti = next((c for c in df.columns if c.lower() == 'voti_ok'), 'Voti_Ok')
 
-            # Normalizzazione nomi colonne per evitare KeyError (rimuove spazi e ignora maiuscole)
-            df.columns = [c.strip() for c in df.columns]
+        # --- LOGICA CALCOLO STATI ---
+        def processa_dati(row):
+            creatore = row['Utente']
+            voti_str = str(row[col_voti]) if pd.notna(row[col_voti]) and str(row[col_voti]) != 'nan' else ""
+            voti_fatti = [v.strip() for v in voti_str.split(',') if v.strip()]
             
-            # Funzione per trovare la colonna dei voti indipendentemente da come è scritta (Voti_Ok, Voti_OK, voti_ok)
-            col_voti = next((c for c in df.columns if c.lower() == 'voti_ok'), None)
-
-            def processa_approvazioni(row):
-                creatore = row['Utente']
-                # Legge i voti dalla colonna individuata
-                voti_str = str(row[col_voti]) if col_voti and pd.notna(row[col_voti]) and str(row[col_voti]) != 'nan' else ""
-                
-                voti_fatti = [v.strip() for v in voti_str.split(',') if v.strip()]
-                altri_utenti = [u for u in UTENTI_TOTALI if u != creatore]
-                mancano = [u for u in altri_utenti if u not in voti_fatti]
-                
-                # Regola: Servono tutti e 3 gli altri utenti per confermare
-                stato_calcolato = "Confermata" if len(mancano) == 0 else "Richiesta"
-                
-                return pd.Series([
-                    ", ".join(voti_fatti) if voti_fatti else "Nessuno",
-                    ", ".join(mancano) if mancano else "Completo",
-                    stato_calcolato
-                ])
-
-            # Creazione colonne calcolate per la visualizzazione
-            df[['Chi_ha_approvato', 'Mancano', 'Stato_Reale']] = df.apply(processa_approvazioni, axis=1)
-
-            st.subheader("Tutte le Prenotazioni")
-            # Selezioniamo solo colonne esistenti + le 3 nuove per la tabella
-            cols_base = ['Casa', 'Utente', 'Data_Inizio', 'Data_Fine']
-            cols_show = [c for c in cols_base if c in df.columns] + ['Stato_Reale', 'Chi_ha_approvato', 'Mancano']
+            altri = [u for u in UTENTI_TOTALI if u != creatore]
+            mancano = [u for u in altri if u not in voti_fatti]
             
-            st.dataframe(df[cols_show], use_container_width=True, hide_index=True)
+            # Confermata solo se tutti e 3 gli altri hanno votato
+            stato = "Confermata" if len(mancano) == 0 else "Richiesta"
+            return pd.Series([", ".join(voti_fatti) if voti_fatti else "Nessuno", ", ".join(mancano) if mancano else "Completo", stato])
 
-            st.divider()
+        df[['Chi_ha_approvato', 'Mancano', 'Stato_Reale']] = df.apply(processa_dati, axis=1)
 
-            # 2. SEZIONE AZIONE: APPROVA
-            st.subheader("Registra la tua Approvazione")
-            
-            # Recuperiamo l'utente (usa session_state.username se l'hai configurato, altrimenti selectbox)
-            mio_nome = st.session_state.get('username', st.selectbox("Seleziona il tuo nome per votare:", [""] + UTENTI_TOTALI))
+        st.subheader("Riepilogo")
+        st.dataframe(df[['Casa', 'Data_Inizio', 'Stato_Reale', 'Mancano']], use_container_width=True, hide_index=True)
 
-            if mio_nome:
-                # Filtro: Non mie, ancora "Richiesta", e non ancora votate da me
-                pendenti = df[
-                    (df['Utente'] != mio_nome) & 
-                    (df['Stato_Reale'] == "Richiesta") & 
-                    (~df['Chi_ha_approvato'].str.contains(mio_nome))
-                ]
+        st.divider()
 
-                if not pendenti.empty:
-                    opzioni = pendenti.apply(lambda x: f"ID: {x['ID']} - {x['Casa']} ({x['Data_Inizio']})", axis=1).tolist()
-                    scelta = st.selectbox("Quale prenotazione vuoi approvare?", opzioni)
+        # Configurazione Icone basata sul tuo screenshot
+        ICONE_CASE = {"NOLI": "⛱️", "LIMONE": "⛰️"}
+
+        # --- SEZIONE APPROVAZIONI ---
+        st.subheader("👍 Approva (Richieste altrui)")
+        da_approvare = df[
+            (df['Utente'] != mio_nome) & 
+            (df['Stato_Reale'] == "Richiesta") & 
+            (~df['Chi_ha_approvato'].str.contains(mio_nome))
+        ]
+
+        if not da_approvare.empty:
+            for _, row in da_approvare.iterrows():
+                ico = ICONE_CASE.get(row['Casa'], "🏠")
+                label_txt = f"{ico} {row['Casa']} | {row['Data_Inizio']} - {row['Data_Fine']} ({row['Utente']})"
+                
+                if st.button(f"APPROVA: {label_txt}", key=f"app_{row['ID']}"):
+                    voti_prec = str(row[col_voti]) if pd.notna(row[col_voti]) and str(row[col_voti]) != 'nan' else ""
+                    nuovi_voti = f"{voti_prec}, {mio_nome}".strip(", ")
+                    num_voti = len([v for v in nuovi_voti.split(',') if v.strip()])
+                    nuovo_stato = "Confermata" if num_voti >= 3 else "Richiesta"
                     
-                    if st.button("Conferma Approvazione"):
-                        # Recupero dati riga selezionata
-                        idx = pendenti.index[opzioni.index(scelta)]
-                        row_sel = df.loc[idx]
-                        
-                        # Prepariamo i nuovi dati
-                        voti_attuali = str(row_sel[col_voti]) if col_voti and pd.notna(row_sel[col_voti]) and str(row_sel[col_voti]) != 'nan' else ""
-                        nuovi_voti = f"{voti_attuali}, {mio_nome}".strip(", ")
-                        
-                        # Calcolo nuovo stato
-                        num_voti = len([v for v in nuovi_voti.split(',') if v.strip()])
-                        nuovo_stato = "Confermata" if num_voti >= 3 else "Richiesta"
+                    try:
+                        riga_sheet = sheet.find(str(row['ID'])).row
+                        sheet.update_cell(riga_sheet, 5, nuovi_voti) 
+                        sheet.update_cell(riga_sheet, 4, nuovo_stato) 
+                        st.toast(f"✅ Approvato {row['Casa']}!", icon='⛱️')
+                        st.rerun()
+                    except:
+                        st.error("Errore di connessione al foglio.")
+        else:
+            st.caption("Nessuna nuova richiesta da approvare.")
 
-                        # --- SCRITTURA SUL FOGLIO GOOGLE ---
-                        try:
-                            # Cerchiamo la riga tramite ID (Colonna A)
-                            cell = sheet.find(str(row_sel['ID']))
-                            riga_target = cell.row
-                            
-                            # Aggiornamento Colonna E (Voti_Ok) e D (Stato)
-                            # Nota: Se le colonne nel tuo sheet sono diverse, cambia i numeri 5 e 4
-                            sheet.update_cell(riga_target, 5, nuovi_voti) 
-                            sheet.update_cell(riga_target, 4, nuovo_stato)
-                            
-                            st.success(f"Grazie {mio_nome}! Approvazione salvata.")
-                            st.balloons()
+        st.divider()
+
+        # --- SEZIONE ELIMINAZIONI CON DOPPIA CONFERMA ---
+        st.subheader("🗑️ Elimina (Le mie)")
+        mie_prenotazioni = df[df['Utente'] == mio_nome]
+
+        if not mie_prenotazioni.empty:
+            for _, row in mie_prenotazioni.iterrows():
+                ico = ICONE_CASE.get(row['Casa'], "🏠")
+                label_del = f"{ico} {row['Casa']} | {row['Data_Inizio']}"
+                
+                if st.session_state.get(f"confirm_delete_{row['ID']}", False):
+                    st.error(f"Confermi di cancellare {label_del}?")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("SÌ, CANCELLA", key=f"si_{row['ID']}", type="primary"):
+                            try:
+                                riga_del = sheet.find(str(row['ID'])).row
+                                sheet.delete_rows(riga_del)
+                                st.toast("Cancellazione avvenuta", icon='🗑️')
+                                del st.session_state[f"confirm_delete_{row['ID']}"]
+                                st.rerun()
+                            except:
+                                st.error("Errore nel database.")
+                    with c2:
+                        if st.button("ANNULLA", key=f"no_{row['ID']}"):
+                            del st.session_state[f"confirm_delete_{row['ID']}"]
                             st.rerun()
-                        except Exception as e:
-                            st.error(f"Errore durante il salvataggio: {e}")
                 else:
-                    st.info(f"Non ci sono nuove richieste da approvare per te, {mio_nome}.")
-    
+                    if st.button(f"ELIMINA: {label_del}", key=f"btn_del_{row['ID']}"):
+                        st.session_state[f"confirm_delete_{row['ID']}"] = True
+                        st.rerun()
+        else:
+            st.caption("Non hai prenotazioni attive.")
+    else:
+        st.info("Database vuoto.")
  # --- TAB 3: CALENDARIO ---
     with tabs[2]:
         legenda = "".join([f'<span class="legenda-item" style="background:{c["color"]}">{u}</span>' for u, c in utenti_cfg.items()])
