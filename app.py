@@ -216,7 +216,36 @@ else:
                 
                 if st.button(f"✅ CONFERMA PRENOTAZIONE", key=f"conf_{r['ID']}"):
                     df_ultimo = get_data()
-                    if r['ID
+                    if r['ID'] in df_ultimo['ID'].values:
+                        df_ultimo.loc[df_ultimo['ID'] == r['ID'], 'Stato'] = "Confermata"
+                        conn.update(worksheet="Prenotazioni", data=df_ultimo)
+                        st.success(f"Confermata!")
+                        time.sleep(1)
+                        st.rerun()
+                st.divider()
+
+        # 3. SEZIONE ELIMINAZIONE
+        st.subheader("Elimina le tue prenotazioni")
+        mie_prenotazioni = df_gestione[df_gestione['Utente'] == st.session_state['user_name']]
+        
+        if mie_prenotazioni.empty:
+            st.write("Non hai prenotazioni attive da eliminare.")
+        else:
+            for _, r in mie_prenotazioni.iterrows():
+                # Usiamo le colonne per affiancare info e cestino
+                col_info, col_btn = st.columns([4, 1])
+                with col_info:
+                    # Font leggermente più piccolo per far stare tutto in una riga su mobile
+                    st.markdown(f"<div style='font-size:0.85rem;'>{r['Casa']}: {r['Data_Inizio']} ({r['Stato']})</div>", unsafe_allow_html=True)
+                with col_btn:
+                    if st.button("🗑️", key=f"del_{r['ID']}"):
+                        df_ultimo = get_data()
+                        df_nuovo = df_ultimo[df_ultimo['ID'] != r['ID']]
+                        conn.update(worksheet="Prenotazioni", data=df_nuovo)
+                        st.warning("Eliminata.")
+                        time.sleep(1)
+                        st.rerun()
+    
  # --- TAB 3: CALENDARIO ---
     with tabs[2]:
         legenda = "".join([f'<span class="legenda-item" style="background:{c["color"]}">{u}</span>' for u, c in utenti_cfg.items()])
