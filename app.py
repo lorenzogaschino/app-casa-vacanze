@@ -14,11 +14,18 @@ st.markdown("""
     html, body { overflow-y: auto; overscroll-behavior-y: contain; }
     [data-testid="stHeader"] { z-index: 999; }
     button[data-baseweb="tab"] p { font-size: 16px !important; font-weight: bold !important; }
+    div.stButton > button {
+        width: 100% !important;
+        height: 3.5em !important;
+        border-radius: 12px !important;
+        font-weight: bold !important;
+    }
     .cal-table { width:100%; table-layout: fixed; border-spacing: 1px; border-collapse: separate; }
     .cal-td { text-align:center; height:35px; border-radius:3px; border:1px solid #f0f0f0; padding:0 !important; position:relative; }
     .day-num { position: absolute; top: 1px; left: 2px; font-size: 9px; color: #666; z-index: 5; }
     .full-cell { height: 100%; width: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; }
     .legenda-item { display: inline-block; padding: 4px 10px; border-radius: 5px; margin: 2px; color: white; font-size: 11px; font-weight: bold; }
+    [data-testid="column"] { width: 50% !important; flex: 1 1 50% !important; min-width: 50% !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -27,17 +34,18 @@ def get_data():
     conn = st.connection("gsheets", type=GSheetsConnection)
     data = conn.read(worksheet="Prenotazioni", ttl=0)
     data = data.dropna(axis=1, how='all')
-    for col in ['Voti_Ok', 'Note', 'Data_Inizio', 'Data_Fine', 'Stato']:
-        if col in data.columns: data[col] = data[col].fillna("").astype(str)
+    cols_to_fix = ['ID', 'Voti_Ok', 'Note', 'Data_Inizio', 'Data_Fine', 'Stato', 'Utente', 'Casa']
+    for col in cols_to_fix:
+        if col in data.columns: 
+            data[col] = data[col].fillna("").astype(str).str.strip()
     return data
 
 def parse_date(d_str):
     try: return datetime.strptime(d_str, '%d/%m/%Y').date()
     except: return None
 
-# --- LOGICA NAVIGAZIONE ---
+# --- LOGICA AUTENTICAZIONE ---
 if 'authenticated' not in st.session_state: st.session_state['authenticated'] = False
-if "tab" not in st.query_params: st.query_params["tab"] = "0"
 
 # --- LOGIN ---
 if not st.session_state['authenticated']:
@@ -57,255 +65,117 @@ else:
     c_inf.write(f"Connesso come: **{st.session_state['user_name']}**")
     if c_log.button("🔴 Logout"):
         st.session_state['authenticated'] = False
-        st.query_params.clear()
         st.rerun()
 
     df = get_data()
     conn = st.connection("gsheets", type=GSheetsConnection)
     utenti_cfg = {"Anita": {"color": "#FF4B4B"}, "Chiara": {"color": "#FFC0CB"}, "Lorenzo": {"color": "#1C83E1"}, "Gianluca": {"color": "#28A745"}}
 
-    tabs = st.tabs(["📅 PRENOTA", "📊 GESTIONE", "🗓️ CALENDARIO", "📈 STATISTICHE"])
+    tabs = st.tabs(["📅 PRENOTA", "📊 GESTIONE", "🗓️ CALENDARIO", "📈 STATISTICHE"], key="main_navigation")
 
- # --- TAB 1: PRENOTA ---
+    # --- TAB 1: PRENOTA ---
     with tabs[0]:
         st.header("Nuova Prenotazione")
-        
-        # 1. Caricamento dati fresco per la visualizzazione iniziale
-        # Usiamo get_data() con ttl=0 per essere sicuri di vedere l'ultimo stato reale
-        df_fresco = get_data()
-        
         casa_scelta = st.selectbox("Scegli la meta", ["NOLI", "LIMONE"], key="select_casa")
+        img_p = f"{casa_scelta.capitalize()}.jpg"
+        if os.path.exists(img_p): st.image(img_p, width=350)
         
-        # Gestione Foto (Check robusto maiuscole/minuscole)
-        img_path = f"{casa_scelta.capitalize()}.jpg"
-        if os.path.exists(img_path):
-            st.image(img_path, width=350)
-        
-        st.subheader("Stato attuale")
-        p_casa_visualizzazione = df_fresco[df_fresco['Casa'] == casa_scelta].copy()
-        
-        if p_casa_visualizzazione.empty:
-            st.info("Nessuna prenotazione presente per questa casa.")
-        else:
-            for _, r in p_casa_visualizzazione.iterrows():
-                # Definizione Etichette chirurgica
-                if str(r['Stato']).strip().lower() == "confermata":
-                    label = "CONFERMATA"
-                    color = "#FF4B4B" # Rosso
-                    icona = "🔴"
-                else:
-                    label = "RICHIESTA"
-                    color = "#FFD700" # Giallo/Oro
-                    icona = "⏳"
-                
-                info = f"{r['Casa']} - {r['Data_Inizio']} - {r['Data_Fine']} - {r['Utente']}"
-                st.markdown(f"<div style='font-size: 0.9rem; line-height: 1.8; margin-bottom: 8px;'><span style='color:{color}; font-weight:bold;'>{icona} {label}:</span> {info}</div>", unsafe_allow_html=True)        # FORM DI PRENOTAZIONE
-        with st.form("booking_form", clear_on_submit=False):
+        with st.form("booking_form"):
             oggi = datetime.now().date()
-            
-            # Input LIBERI: Nessun min_value dinamico per evitare che Streamlit sposti le date da solo
             d_in = st.date_input("Check-in", value=oggi + timedelta(days=1))
             d_out = st.date_input("Check-out", value=oggi + timedelta(days=2))
             note = st.text_area("Note (opzionale)")
-            
             submit = st.form_submit_button("🚀 INVIA PRENOTAZIONE")
             
             if submit:
-                # --- SICUREZZA 1: Ricarichiamo i dati REALI per il controllo finale ---
-                df_reale = get_data() 
-                p_casa_reale = df_reale[df_reale['Casa'] == casa_scelta]
-
-                # --- SICUREZZA 2: Validazione Logica ---
-                if d_in < oggi:
-                    st.error(f"❌ Errore: Non puoi prenotare nel passato (Check-in: {d_in.strftime('%d/%m/%Y')})")
-                elif d_out <= d_in:
-                    st.error(f"❌ Errore: Il Check-out ({d_out.strftime('%d/%m/%Y')}) deve essere successivo al Check-in.")
+                df_reale = get_data()
+                p_casa = df_reale[df_reale['Casa'] == casa_scelta]
+                conflitto = False
+                for _, r in p_casa.iterrows():
+                    s_ex, e_ex = parse_date(r['Data_Inizio']), parse_date(r['Data_Fine'])
+                    if s_ex and e_ex and (d_in < e_ex) and (d_out > s_ex):
+                        conflitto = True; break
                 
+                if d_out <= d_in: st.error("La data di fine deve essere successiva all'inizio.")
+                elif conflitto: st.error("Attenzione: date già occupate!")
                 else:
-                    # --- SICUREZZA 3: Controllo Sovrapposizione Matematico ---
-                    conflitto = False
-                    dettaglio_conflitto = ""
-                    
-                    for _, r in p_casa_reale.iterrows():
-                        # Pulizia stringhe date dal DB
-                        s_ex = parse_date(str(r['Data_Inizio']).strip())
-                        e_ex = parse_date(str(r['Data_Fine']).strip())
-                        
-                        if s_ex and e_ex:
-                            # Formula: (Inizio_Nuovo < Fine_Esistente) AND (Fine_Nuovo > Inizio_Esistente)
-                            if (d_in < e_ex) and (d_out > s_ex):
-                                conflitto = True
-                                dettaglio_conflitto = f"{r['Data_Inizio']} - {r['Data_Fine']} ({r['Utente']})"
-                                break
-                    
-                    if conflitto:
-                        # BLOCCO TOTALE: Il sistema non "aggiusta" nulla, semplicemente rifiuta.
-                        st.error(f"⚠️ PRENOTAZIONE NEGATA: Le date scelte si sovrappongono con: {dettaglio_conflitto}")
+                    nuova_riga = pd.DataFrame([{
+                        "ID": str(datetime.now().timestamp()), "Casa": casa_scelta, "Utente": st.session_state['user_name'],
+                        "Data_Inizio": d_in.strftime('%d/%m/%Y'), "Data_Fine": d_out.strftime('%d/%m/%Y'),
+                        "Stato": "Richiesta", "Voti_Ok": "", "Note": note
+                    }])
+                    conn.update(worksheet="Prenotazioni", data=pd.concat([df_reale, nuova_riga], ignore_index=True))
+                    st.success("Richiesta inviata!")
+                    time.sleep(1)
+                    st.rerun()
+
+    # --- TAB 2: GESTIONE ---
+    with tabs[1]:
+        st.header("Gestione e Approvazioni")
+        df_gest = get_data()
+        mio_nome = st.session_state['user_name']
+        
+        if not df_gest.empty:
+            def processa(row):
+                v_str = row['Voti_Ok'] if 'Voti_Ok' in row else ""
+                voti = [v.strip() for v in str(v_str).split(',') if v.strip()]
+                mancano = [u for u in utenti_cfg.keys() if u != row['Utente'] and u not in voti]
+                stato = "Confermata" if len(mancano) == 0 else "Richiesta"
+                return pd.Series([", ".join(voti) if voti else "Nessuno", ", ".join(mancano) if mancano else "Completo", stato])
+
+            df_gest[['Approvati', 'Mancano', 'Stato_Reale']] = df_gest.apply(processa, axis=1)
+            st.subheader("Riepilogo")
+            st.dataframe(df_gest[['Casa', 'Utente', 'Data_Inizio', 'Stato_Reale', 'Mancano']], use_container_width=True, hide_index=True)
+            st.divider()
+            
+            st.subheader("👍 Approva richieste")
+            pendenti = df_gest[(df_gest['Utente'] != mio_nome) & (df_gest['Stato_Reale'] == "Richiesta") & (~df_gest['Approvati'].str.contains(mio_nome))]
+            if not pendenti.empty:
+                for _, r in pendenti.iterrows():
+                    ico = "⛱️" if r['Casa'] == "NOLI" else "⛰️"
+                    if st.button(f"APPROVA: {ico} {r['Casa']} ({r['Data_Inizio']})", key=f"ap_{r['ID']}"):
+                        df_raw = get_data()
+                        nuovi_voti = f"{r['Voti_Ok']}, {mio_nome}".strip(", ")
+                        df_raw.loc[df_raw['ID'] == str(r['ID']), 'Voti_Ok'] = nuovi_voti
+                        v_list = [v.strip() for v in nuovi_voti.split(',') if v.strip()]
+                        if len(v_list) >= 3: df_raw.loc[df_raw['ID'] == str(r['ID']), 'Stato'] = "Confermata"
+                        conn.update(worksheet="Prenotazioni", data=df_raw)
+                        st.toast("Approvazione registrata!", icon="✅")
+                        time.sleep(1); st.rerun()
+            else: st.caption("Nulla da approvare al momento.")
+
+            st.divider()
+            st.subheader("🗑️ Elimina le mie")
+            mie = df_gest[df_gest['Utente'] == mio_nome]
+            if not mie.empty:
+                for _, r in mie.iterrows():
+                    if st.session_state.get(f"confirm_{r['ID']}", False):
+                        st.error(f"Eliminare {r['Casa']} dal {r['Data_Inizio']}?")
+                        c1, c2 = st.columns(2)
+                        if c1.button("SÌ, ELIMINA", key=f"yes_{r['ID']}", type="primary"):
+                            df_raw = get_data()
+                            df_raw = df_raw[df_raw['ID'] != str(r['ID'])]
+                            conn.update(worksheet="Prenotazioni", data=df_raw)
+                            st.session_state[f"confirm_{r['ID']}"] = False
+                            st.rerun()
+                        if c2.button("ANNULLA", key=f"no_{r['ID']}"):
+                            st.session_state[f"confirm_{r['ID']}"] = False; st.rerun()
                     else:
-                        # --- SICUREZZA 4: Scrittura finale su Google Sheets ---
-                        try:
-                            nuova_riga = pd.DataFrame([{
-                                "ID": str(datetime.now().timestamp()), 
-                                "Casa": casa_scelta, 
-                                "Utente": st.session_state['user_name'],
-                                "Data_Inizio": d_in.strftime('%d/%m/%Y'), 
-                                "Data_Fine": d_out.strftime('%d/%m/%Y'),
-                                "Stato": "In Attesa", 
-                                "Voti_Ok": "", 
-                                "Note": note
-                            }])
-                            
-                            # Concateniamo i nuovi dati a quelli appena scaricati dal server
-                            df_aggiornato = pd.concat([df_reale, nuova_riga], ignore_index=True)
-                            conn.update(worksheet="Prenotazioni", data=df_aggiornato)
-                            
-                            st.balloons()
-                            st.success("✅ Richiesta inviata con successo!")
-                            time.sleep(1)
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Errore tecnico durante il salvataggio: {e}")
-# --- CONFIGURAZIONE TAB CON PERSISTENZA ---
-# L'attributo 'key' mantiene l'utente su questa pagina dopo il click dei tasti
-tabs = st.tabs(["📅 PRENOTA", "📊 GESTIONE", "🗓️ CALENDARIO", "📈 STATISTICHE"], key="main_navigation")
+                        if st.button(f"ELIMINA: {r['Casa']} ({r['Data_Inizio']})", key=f"del_{r['ID']}"):
+                            st.session_state[f"confirm_{r['ID']}"] = True; st.rerun()
 
-# --- TAB 2: GESTIONE ---
-with tabs[1]:
-    # CSS per Mobile: pulsanti larghi, arrotondati e testo leggibile
-    st.markdown("""
-        <style>
-            div.stButton > button {
-                width: 100% !important;
-                height: 3.8em !important;
-                margin-top: 10px !important;
-                border-radius: 15px !important;
-                font-weight: bold !important;
-                border: 1px solid #ddd !important;
-            }
-            .stDataFrame { font-size: 11px !important; }
-        </style>
-    """, unsafe_allow_html=True)
-
-    st.header("Gestione e Approvazioni")
-
-    # 1. CARICAMENTO DATI
-    df_gestione = get_data()
-    UTENTI_TOTALI = ["Chiara", "Lorenzo", "Gianluca", "Anita"] 
-    mio_nome = st.session_state.get('username', 'Chiara') 
-
-    if not df_gestione.empty:
-        df = df_gestione.copy()
-        df.columns = [c.strip() for c in df.columns]
-        col_voti = next((c for c in df.columns if c.lower() == 'voti_ok'), 'Voti_Ok')
-
-        # --- LOGICA CALCOLO STATI ---
-        def processa_dati(row):
-            creatore = row['Utente']
-            voti_str = str(row[col_voti]) if pd.notna(row[col_voti]) and str(row[col_voti]) != 'nan' else ""
-            voti_fatti = [v.strip() for v in voti_str.split(',') if v.strip()]
-            
-            altri = [u for u in UTENTI_TOTALI if u != creatore]
-            mancano = [u for u in altri if u not in voti_fatti]
-            
-            # Confermata solo se tutti e 3 gli altri hanno votato
-            stato = "Confermata" if len(mancano) == 0 else "Richiesta"
-            return pd.Series([", ".join(voti_fatti) if voti_fatti else "Nessuno", ", ".join(mancano) if mancano else "Completo", stato])
-
-        df[['Chi_ha_approvato', 'Mancano', 'Stato_Reale']] = df.apply(processa_dati, axis=1)
-
-        st.subheader("Riepilogo")
-        st.dataframe(df[['Casa', 'Data_Inizio', 'Stato_Reale', 'Mancano']], use_container_width=True, hide_index=True)
-
-        st.divider()
-
-        # Configurazione Icone basata sul tuo screenshot
-        ICONE_CASE = {"NOLI": "⛱️", "LIMONE": "⛰️"}
-
-        # --- SEZIONE APPROVAZIONI ---
-        st.subheader("👍 Approva (Richieste altrui)")
-        da_approvare = df[
-            (df['Utente'] != mio_nome) & 
-            (df['Stato_Reale'] == "Richiesta") & 
-            (~df['Chi_ha_approvato'].str.contains(mio_nome))
-        ]
-
-        if not da_approvare.empty:
-            for _, row in da_approvare.iterrows():
-                ico = ICONE_CASE.get(row['Casa'], "🏠")
-                label_txt = f"{ico} {row['Casa']} | {row['Data_Inizio']} - {row['Data_Fine']} ({row['Utente']})"
-                
-                if st.button(f"APPROVA: {label_txt}", key=f"app_{row['ID']}"):
-                    voti_prec = str(row[col_voti]) if pd.notna(row[col_voti]) and str(row[col_voti]) != 'nan' else ""
-                    nuovi_voti = f"{voti_prec}, {mio_nome}".strip(", ")
-                    num_voti = len([v for v in nuovi_voti.split(',') if v.strip()])
-                    nuovo_stato = "Confermata" if num_voti >= 3 else "Richiesta"
-                    
-                    try:
-                        riga_sheet = sheet.find(str(row['ID'])).row
-                        sheet.update_cell(riga_sheet, 5, nuovi_voti) 
-                        sheet.update_cell(riga_sheet, 4, nuovo_stato) 
-                        st.toast(f"✅ Approvato {row['Casa']}!", icon='⛱️')
-                        st.rerun()
-                    except:
-                        st.error("Errore di connessione al foglio.")
-        else:
-            st.caption("Nessuna nuova richiesta da approvare.")
-
-        st.divider()
-
-        # --- SEZIONE ELIMINAZIONI CON DOPPIA CONFERMA ---
-        st.subheader("🗑️ Elimina (Le mie)")
-        mie_prenotazioni = df[df['Utente'] == mio_nome]
-
-        if not mie_prenotazioni.empty:
-            for _, row in mie_prenotazioni.iterrows():
-                ico = ICONE_CASE.get(row['Casa'], "🏠")
-                label_del = f"{ico} {row['Casa']} | {row['Data_Inizio']}"
-                
-                if st.session_state.get(f"confirm_delete_{row['ID']}", False):
-                    st.error(f"Confermi di cancellare {label_del}?")
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        if st.button("SÌ, CANCELLA", key=f"si_{row['ID']}", type="primary"):
-                            try:
-                                riga_del = sheet.find(str(row['ID'])).row
-                                sheet.delete_rows(riga_del)
-                                st.toast("Cancellazione avvenuta", icon='🗑️')
-                                del st.session_state[f"confirm_delete_{row['ID']}"]
-                                st.rerun()
-                            except:
-                                st.error("Errore nel database.")
-                    with c2:
-                        if st.button("ANNULLA", key=f"no_{row['ID']}"):
-                            del st.session_state[f"confirm_delete_{row['ID']}"]
-                            st.rerun()
-                else:
-                    if st.button(f"ELIMINA: {label_del}", key=f"btn_del_{row['ID']}"):
-                        st.session_state[f"confirm_delete_{row['ID']}"] = True
-                        st.rerun()
-        else:
-            st.caption("Non hai prenotazioni attive.")
-    else:
-        st.info("Database vuoto.")
- # --- TAB 3: CALENDARIO ---
+    # --- TAB 3: CALENDARIO ---
     with tabs[2]:
         legenda = "".join([f'<span class="legenda-item" style="background:{c["color"]}">{u}</span>' for u, c in utenti_cfg.items()])
         st.markdown(f"🗓️ 2026 | {legenda} | <span class='legenda-item' style='background:#FFFFCC; color:#666; border:1px solid #ccc'>In Attesa</span>", unsafe_allow_html=True)
-        
-        # Mappa occupazione: usiamo (data, casa) come chiave per non sovrapporre Noli e Limone
         occ = {}
-        # Ordiniamo per Stato (In Attesa prima, Confermate dopo) così le confermate hanno la priorità visiva
-        df_sorted = df.sort_values(by="Stato", ascending=True)
-        
-        for _, r in df_sorted.iterrows():
+        for _, r in df_gest.iterrows():
             s, e = parse_date(r['Data_Inizio']), parse_date(r['Data_Fine'])
             if s and e:
                 curr = s
                 while curr < e:
-                    # Chiave doppia: data + casa
-                    occ[(curr, r['Casa'])] = {"u": r['Utente'], "s": r['Stato']}
+                    occ[(curr, r['Casa'])] = {"u": r['Utente'], "s": r['Stato_Reale']}
                     curr += timedelta(days=1)
-        
         for riga in range(6):
             cols = st.columns(2)
             for box in range(2):
@@ -315,134 +185,45 @@ with tabs[1]:
                     m_date = datetime(2026, m, 1).date()
                     st.write(f"**{m_date.strftime('%B').upper()}**")
                     html = "<table class='cal-table'><tr>" + "".join([f"<th>{dn}</th>" for dn in ['L','M','M','G','V','S','D']]) + "</tr><tr>"
-                    
-                    wd = m_date.weekday() # 0=Lunedì
+                    wd = m_date.weekday()
                     html += "<td></td>" * wd
-                    
-                    # Calcolo esatto fine mese
-                    if m == 12: last_day = 31
-                    else: last_day = (datetime(2026, m+1, 1).date() - timedelta(days=1)).day
-                    
+                    ld = 31 if m == 12 else (datetime(2026, m+1, 1).date() - timedelta(days=1)).day
                     c_col = wd
-                    for d in range(1, last_day + 1):
+                    for d in range(1, ld + 1):
                         d_obj = m_date.replace(day=d)
-                        bg = ""
-                        icona = ""
-                        
-                        # Controllo se il giorno è occupato in ALMENO una delle due case
-                        res_noli = occ.get((d_obj, "NOLI"))
-                        res_limone = occ.get((d_obj, "LIMONE"))
-                        
-                        # Priorità cromatica: se c'è almeno una confermata, usa il colore dell'utente
-                        # Se sono entrambe in attesa, usa il giallino
-                        disponibile = True
-                        if res_noli or res_limone:
-                            disponibile = False
-                            # Scegliamo quale colore mostrare (priorità a chi ha confermato)
-                            res = res_noli if res_noli else res_limone
-                            if res_noli and res_noli['s'] == "Confermata": res = res_noli
-                            elif res_limone and res_limone['s'] == "Confermata": res = res_limone
-                            
-                            if res['s'] == "Confermata":
-                                bg = f"background-color: {utenti_cfg[res['u']]['color']}; color: white;"
-                            else:
-                                bg = "background-color: #FFFFCC; color: #666; border: 1px dashed #FFD700;"
-                            
-                            # Icone: mostriamo cosa è occupato
-                            if res_noli: icona += "🏖️"
-                            if res_limone: icona += "🏔️"
-
-                        content = f"<div class='day-num'>{d}</div><div class='full-cell'>{icona}</div>"
-                        html += f"<td class='cal-td' style='{bg}'>{content}</td>"
-                        
+                        bg, ico_c = "", ""
+                        rn, rl = occ.get((d_obj, "NOLI")), occ.get((d_obj, "LIMONE"))
+                        if rn or rl:
+                            res = rn if rn and rn['s'] == "Confermata" else (rl if rl and rl['s'] == "Confermata" else (rn or rl))
+                            if res['s'] == "Confermata": bg = f"background-color: {utenti_cfg[res['u']]['color']}; color: white;"
+                            else: bg = "background-color: #FFFFCC; color: #666; border: 1px dashed #FFD700;"
+                            if rn: ico_c += "🏖️"
+                            if rl: ico_c += "🏔️"
+                        html += f"<td class='cal-td' style='{bg}'><div class='day-num'>{d}</div><div class='full-cell'>{ico_c}</div></td>"
                         c_col += 1
-                        if c_col > 6:
-                            html += "</tr><tr>"
-                            c_col = 0
-                    
-                    # Chiudi le celle mancanti a fine mese per mantenere i bordi puliti
-                    if c_col != 0:
-                        html += "<td></td>" * (7 - c_col)
-                        
+                        if c_col > 6: html += "</tr><tr>"; c_col = 0
+                    if c_col != 0: html += "<td></td>" * (7 - c_col)
                     st.markdown(html + "</tr></table>", unsafe_allow_html=True)
-# --- TAB 4: STATISTICHE ---
+
+    # --- TAB 4: STATISTICHE ---
     with tabs[3]:
         st.header("Analisi Occupazione 2026")
-        
-        # CSS Definitivo: Layout 50/50 e icone piccole
-        st.markdown("""
-            <style>
-                /* Forza le colonne affiancate al 50% su mobile */
-                [data-testid="column"] {
-                    width: 50% !important;
-                    flex: 1 1 50% !important;
-                    min-width: 50% !important;
-                }
-                
-                /* Icone piccole (thumbnail) */
-                [data-testid="stImage"] img {
-                    max-height: 100px !important;
-                    width: auto !important;
-                    margin: 0 auto;
-                    display: block;
-                    border-radius: 5px;
-                }
-
-                /* Font tabella e metriche */
-                .stTable { font-size: 12px !important; }
-                [data-testid="stMetricValue"] { font-size: 1.8rem !important; font-weight: bold; }
-                
-                td { white-space: nowrap; padding: 2px 5px !important; }
-            </style>
-        """, unsafe_allow_html=True)
-
-        def calc_days(row):
-            s = parse_date(str(row['Data_Inizio']).strip())
-            e = parse_date(str(row['Data_Fine']).strip())
+        def calc_gg(row):
+            s, e = parse_date(row['Data_Inizio']), parse_date(row['Data_Fine'])
             return (e - s).days if s and e else 0
-
-        df_stats = df.copy()
-        df_stats['GG'] = df_stats.apply(calc_days, axis=1)
-        
-        # --- LAYOUT SUPERIORE: FOTO PICCOLE E METRICHE ---
+        df_st = df_gest.copy()
+        df_st['GG'] = df_st.apply(calc_gg, axis=1)
         c1, c2 = st.columns(2)
-        
         with c1:
-            img_noli = "Noli.jpg" if os.path.exists("Noli.jpg") else "noli.jpg"
-            if os.path.exists(img_noli):
-                st.image(img_noli, use_container_width=False)
-            
-            noli_conf = df_stats[(df_stats['Casa'] == 'NOLI') & (df_stats['Stato'] == 'Confermata')]['GG'].sum()
-            st.metric(label="NOLI 🏖️", value=f"{int(noli_conf)} gg")
-            
+            if os.path.exists("Noli.jpg"): st.image("Noli.jpg", use_container_width=False)
+            n_gg = df_st[(df_st['Casa'] == 'NOLI') & (df_st['Stato_Reale'] == 'Confermata')]['GG'].sum()
+            st.metric("NOLI 🏖️", f"{int(n_gg)} gg")
         with c2:
-            img_limone = "Limone.jpg" if os.path.exists("Limone.jpg") else "limone.jpg"
-            if os.path.exists(img_limone):
-                st.image(img_limone, use_container_width=False)
-                
-            limone_conf = df_stats[(df_stats['Casa'] == 'LIMONE') & (df_stats['Stato'] == 'Confermata')]['GG'].sum()
-            st.metric(label="LIMONE 🏔️", value=f"{int(limone_conf)} gg")
-            
+            if os.path.exists("Limone.jpg"): st.image("Limone.jpg", use_container_width=False)
+            l_gg = df_st[(df_st['Casa'] == 'LIMONE') & (df_st['Stato_Reale'] == 'Confermata')]['GG'].sum()
+            st.metric("LIMONE 🏔️", f"{int(l_gg)} gg")
         st.divider()
-        
-        # --- TABELLA RIEPILOGO ---
-        st.subheader("Riepilogo Utente")
-        
-        # 1. Calcolo Confermati
-        conf_u = df_stats[df_stats['Stato'] == 'Confermata'].groupby('Utente')['GG'].sum().reset_index()
-        conf_u.columns = ['Utente', 'Confermati 🔴']
-        
-        # 2. Calcolo Richiesti (Tutto ciò che non è confermato)
-        rich_u = df_stats[df_stats['Stato'] != 'Confermata'].groupby('Utente')['GG'].sum().reset_index()
-        rich_u.columns = ['Utente', 'Richiesti ⏳']
-        
-        # 3. Unione e Pulizia
-        tutti_utenti = pd.DataFrame({'Utente': list(utenti_cfg.keys())})
-        final_stats = pd.merge(tutti_utenti, conf_u, on='Utente', how='left')
-        final_stats = pd.merge(final_stats, rich_u, on='Utente', how='left').fillna(0)
-        
-        final_stats['Confermati 🔴'] = final_stats['Confermati 🔴'].astype(int)
-        final_stats['Richiesti ⏳'] = final_stats['Richiesti ⏳'].astype(int)
-        
-        # Tabella ordinata per i confermati
-        st.table(final_stats.sort_values(by='Confermati 🔴', ascending=False))
+        conf = df_st[df_st['Stato_Reale'] == 'Confermata'].groupby('Utente')['GG'].sum()
+        rich = df_st[df_st['Stato_Reale'] != 'Confermata'].groupby('Utente')['GG'].sum()
+        res_st = pd.DataFrame({'Utente': utenti_cfg.keys()}).merge(conf.rename('Confermati 🔴'), on='Utente', how='left').merge(rich.rename('Richiesti ⏳'), on='Utente', how='left').fillna(0)
+        st.table(res_st.sort_values(by='Confermati 🔴', ascending=False))
