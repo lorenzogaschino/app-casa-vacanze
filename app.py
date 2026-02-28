@@ -299,37 +299,34 @@ else:
                         html += "<td></td>" * (7 - c_col)
                         
                     st.markdown(html + "</tr></table>", unsafe_allow_html=True)
-  # --- TAB 4: STATISTICHE ---
+ # --- TAB 4: STATISTICHE ---
     with tabs[3]:
         st.header("Analisi Occupazione 2026")
         
-        # CSS Definitivo per Mobile
+        # CSS Definitivo: Bersaglia direttamente i contenitori delle immagini
         st.markdown("""
             <style>
-                /* Forza le colonne a stare affiancate (50/50) */
+                /* Forza le colonne affiancate al 50% */
                 [data-testid="column"] {
                     width: 50% !important;
                     flex: 1 1 50% !important;
                     min-width: 50% !important;
-                    padding: 0 5px !important;
                 }
                 
-                /* Rimpicciolisce forzatamente le foto */
-                [data-testid="stImage"] {
-                    max-width: 100% !important;
-                }
+                /* Rimpicciolisce drasticamente le foto trasformandole in 'thumbnail' */
                 [data-testid="stImage"] img {
-                    height: 80px !important; /* Altezza fissa per tenerle piccole e uguali */
-                    object-fit: cover !important;
-                    border-radius: 8px;
+                    max-height: 100px !important;
+                    width: auto !important;
+                    margin: 0 auto;
+                    display: block;
+                    border-radius: 5px;
                 }
 
-                /* Font tabella e metriche leggibili */
-                .stTable { font-size: 13px !important; }
-                [data-testid="stMetricValue"] { font-size: 1.5rem !important; } /* Ripristina grandezza numeri */
+                /* Font tabella e metriche */
+                .stTable { font-size: 12px !important; }
+                [data-testid="stMetricValue"] { font-size: 1.8rem !important; font-weight: bold; }
                 
-                table { width: 100% !important; }
-                td { white-space: nowrap; padding: 4px !important; }
+                td { white-space: nowrap; padding: 2px 5px !important; }
             </style>
         """, unsafe_allow_html=True)
 
@@ -341,24 +338,26 @@ else:
         df_stats = df.copy()
         df_stats['GG'] = df_stats.apply(calc_days, axis=1)
         
-        # --- LAYOUT SUPERIORE: FOTO PICCOLE E AFFIANCATE ---
+        # --- LAYOUT SUPERIORE: FOTO PICCOLE E METRICHE ---
         c1, c2 = st.columns(2)
         
         with c1:
             img_noli = "Noli.jpg" if os.path.exists("Noli.jpg") else "noli.jpg"
             if os.path.exists(img_noli):
-                st.image(img_noli, use_container_width=True)
-            st.caption("NOLI 🏖️")
+                st.image(img_noli, use_container_width=False) # False per non forzare la larghezza piena
+            
             noli_conf = df_stats[(df_stats['Casa'] == 'NOLI') & (df_stats['Stato'] == 'Confermata')]['GG'].sum()
-            st.metric(label=None, value=f"{int(noli_conf)} gg")
+            # FIX BUG: label non può essere None, usiamo stringa vuota
+            st.metric(label="NOLI 🏖️", value=f"{int(noli_conf)} gg")
             
         with c2:
             img_limone = "Limone.jpg" if os.path.exists("Limone.jpg") else "limone.jpg"
             if os.path.exists(img_limone):
-                st.image(img_limone, use_container_width=True)
-            st.caption("LIMONE 🏔️")
+                st.image(img_limone, use_container_width=False)
+                
             limone_conf = df_stats[(df_stats['Casa'] == 'LIMONE') & (df_stats['Stato'] == 'Confermata')]['GG'].sum()
-            st.metric(label=None, value=f"{int(limone_conf)} gg")
+            # FIX BUG: label non può essere None, usiamo stringa vuota
+            st.metric(label="LIMONE 🏔️", value=f"{int(limone_conf)} gg")
             
         st.divider()
         
