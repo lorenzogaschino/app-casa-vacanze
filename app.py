@@ -1,4 +1,4 @@
-import streamlit as st
+    import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime, timedelta
@@ -224,7 +224,7 @@ else:
                         st.rerun()
                 st.divider()
 
-        # 3. SEZIONE ELIMINAZIONE
+       # 3. SEZIONE ELIMINAZIONE (Uguale a Approva)
         st.subheader("Elimina le tue prenotazioni")
         mie_prenotazioni = df_gestione[df_gestione['Utente'] == st.session_state['user_name']]
         
@@ -232,19 +232,19 @@ else:
             st.write("Non hai prenotazioni attive da eliminare.")
         else:
             for _, r in mie_prenotazioni.iterrows():
-                # Usiamo le colonne per affiancare info e cestino
-                col_info, col_btn = st.columns([4, 1])
-                with col_info:
-                    # Font leggermente più piccolo per far stare tutto in una riga su mobile
-                    st.markdown(f"<div style='font-size:0.85rem;'>{r['Casa']}: {r['Data_Inizio']} ({r['Stato']})</div>", unsafe_allow_html=True)
-                with col_btn:
-                    if st.button("🗑️", key=f"del_{r['ID']}"):
-                        df_ultimo = get_data()
-                        df_nuovo = df_ultimo[df_ultimo['ID'] != r['ID']]
-                        conn.update(worksheet="Prenotazioni", data=df_nuovo)
-                        st.warning("Eliminata.")
-                        time.sleep(1)
-                        st.rerun()
+                # Struttura identica a Approva: Testo sopra
+                st.markdown(f"🏠 **{r['Casa']}** | 📅 {r['Data_Inizio']} - {r['Data_Fine']}")
+                st.caption(f"Stato attuale: {r['Stato']}")
+                
+                # Bottone sotto a tutta larghezza
+                if st.button(f"🗑️ ELIMINA PRENOTAZIONE", key=f"del_{r['ID']}"):
+                    df_ultimo = get_data()
+                    df_nuovo = df_ultimo[df_ultimo['ID'] != r['ID']]
+                    conn.update(worksheet="Prenotazioni", data=df_nuovo)
+                    st.warning("Prenotazione eliminata.")
+                    time.sleep(1)
+                    st.rerun()
+                st.divider()
     
  # --- TAB 3: CALENDARIO ---
     with tabs[2]:
