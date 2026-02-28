@@ -167,14 +167,14 @@ else:
                             st.error(f"Errore tecnico durante il salvataggio: {e}")
 # --- TAB 2: GESTIONE ---
     with tabs[1]:
-        # CSS per font ridotto e ariosità su mobile
+        # CSS per font ridotto e bottoni full-width su mobile
         st.markdown("""
             <style>
                 .stDataFrame { font-size: 12px !important; }
                 div.stButton > button { 
                     font-size: 0.85rem !important; 
                     padding: 5px 10px !important; 
-                    width: 100%; /* Forza i bottoni a occupare tutta la larghezza */
+                    width: 100% !important;
                 }
                 [data-testid="stAppViewBlockContainer"] { padding-top: 1rem !important; }
             </style>
@@ -205,7 +205,7 @@ else:
                 st.markdown(f"🏠 **{r['Casa']}** | 👤 **{r['Utente']}**")
                 st.caption(f"📅 {r['Data_Inizio']} - {r['Data_Fine']} | 📝 {r['Note']}")
                 
-                # Bottone sotto (full-width da CSS)
+                # Bottone sotto (full-width)
                 if st.button(f"✅ CONFERMA PRENOTAZIONE", key=f"conf_{r['ID']}"):
                     df_ultimo = get_data()
                     if r['ID'] in df_ultimo['ID'].values:
@@ -216,7 +216,7 @@ else:
                         st.rerun()
                 st.divider()
 
-        # 3. SEZIONE ELIMINAZIONE (ORA UGUALE A APPROVA)
+        # 3. SEZIONE ELIMINAZIONE (Identica a Approva)
         st.subheader("Elimina le tue prenotazioni")
         mie_prenotazioni = df_gestione[df_gestione['Utente'] == st.session_state['user_name']]
         
@@ -228,7 +228,7 @@ else:
                 st.markdown(f"🏠 **{r['Casa']}** | 📅 {r['Data_Inizio']} - {r['Data_Fine']}")
                 st.caption(f"Stato attuale: {r['Stato']}")
                 
-                # Bottone sotto (full-width da CSS)
+                # Bottone sotto (full-width)
                 if st.button(f"🗑️ ELIMINA PRENOTAZIONE", key=f"del_{r['ID']}"):
                     df_ultimo = get_data()
                     # Eliminiamo la riga filtrando per ID
