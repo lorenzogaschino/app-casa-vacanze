@@ -74,15 +74,16 @@ else:
         f_nome = "Noli.jpg" if casa_scelta == "NOLI" else "Limone.jpg"
         if os.path.exists(f_nome): st.image(f_nome, width=280)
         
-        # Elenco occupazione con formattazione richiesta (Giallo/Rosso)
+        # ELENCO PRENOTAZIONI CON DETTAGLIO COMPLETO
         p_casa = df[df['Casa'] == casa_scelta].copy()
         if not p_casa.empty:
             st.write("---")
             for _, r in p_casa.iterrows():
+                formato_info = f"{r['Casa']} - {r['Data_Inizio']} - {r['Data_Fine']} - {r['Utente']}"
                 if r['Stato'] == "Confermata":
-                    st.markdown(f"<span style='color:#FF4B4B; font-weight:bold;'>🔴 CONFERMATA:</span> {r['Casa']} | {r['Data_Inizio']} - {r['Data_Fine']} ({r['Utente']})", unsafe_allow_html=True)
+                    st.markdown(f"<span style='color:#FF4B4B; font-weight:bold;'>🔴 CONFERMATA:</span> {formato_info}", unsafe_allow_html=True)
                 else:
-                    st.markdown(f"<span style='color:#FFD700; font-weight:bold;'>⏳ IN ATTESA:</span> {r['Casa']} | {r['Data_Inizio']} - {r['Data_Fine']} ({r['Utente']})", unsafe_allow_html=True)
+                    st.markdown(f"<span style='color:#FFD700; font-weight:bold;'>⏳ IN ATTESA:</span> {formato_info}", unsafe_allow_html=True)
             st.write("---")
 
         with st.form("booking_form"):
@@ -90,7 +91,7 @@ else:
             d_out = st.date_input("Check-out", value=d_in + timedelta(days=1), min_value=datetime.now().date())
             note = st.text_area("Note")
             if st.form_submit_button("🚀 INVIA PRENOTAZIONE"):
-                if d_out <= d_in: st.error("❌ Errore: La data di fine deve essere successiva all'inizio.")
+                if d_out <= d_in: st.error("❌ La data di fine deve essere successiva all'inizio.")
                 else:
                     nuova = pd.DataFrame([{
                         "ID": str(datetime.now().timestamp()), "Casa": casa_scelta, "Utente": st.session_state['user_name'],
@@ -98,7 +99,7 @@ else:
                         "Stato": "In Attesa", "Voti_Ok": "", "Note": note
                     }])
                     conn.update(worksheet="Prenotazioni", data=pd.concat([df, nuova], ignore_index=True))
-                    st.success(f"✅ Prenotazione di {(d_out - d_in).days + 1} giorni registrata!"); time.sleep(1.5); st.rerun()
+                    st.success("✅ Prenotazione registrata!"); time.sleep(1.5); st.rerun()
 
     # --- TAB 2: GESTIONE ---
     with tab2:
@@ -112,8 +113,9 @@ else:
                 for idx, row in da_approvare.iterrows():
                     voti = [x.strip() for x in str(row['Voti_Ok']).split(",") if x.strip()]
                     if st.session_state['user_name'] not in voti:
-                        # Unico tasto con tutte le informazioni Casa - Inizio - Fine - Utente
-                        if st.button(f"Approva: {row['Casa']} | {row['Data_Inizio']} - {row['Data_Fine']} ({row['Utente']})", key=f"app_{idx}"):
+                        # FORMATO: Approva: Casa - Data_Inizio - Data_fine - Utente
+                        label_app = f"Approva: {row['Casa']} - {row['Data_Inizio']} - {row['Data_Fine']} - {row['Utente']}"
+                        if st.button(label_app, key=f"app_{idx}"):
                             voti.append(st.session_state['user_name'])
                             df.at[idx, 'Voti_Ok'] = ", ".join(voti)
                             if len(voti) >= 3: df.at[idx, 'Stato'] = "Confermata"
@@ -127,16 +129,16 @@ else:
                 st.info("Non hai prenotazioni attive.")
             else:
                 for idx, row in le_mie.iterrows():
-                    # Formato identico ad Approva per coerenza
-                    label_del = f"Cancella: {row['Casa']} | {row['Data_Inizio']} - {row['Data_Fine']} ({row['Utente']})"
+                    # FORMATO: Cancella: Casa - Data_Inizio - Data_fine - Utente
+                    label_del = f"Cancella: {row['Casa']} - {row['Data_Inizio']} - {row['Data_Fine']} - {row['Utente']}"
                     
                     if st.button(label_del, key=f"pre_del_{idx}"):
                         st.session_state[f"confirm_{idx}"] = True
                     
                     if st.session_state.get(f"confirm_{idx}"):
-                        st.error(f"⚠️ Sei sicuro di voler eliminare la prenotazione del {row['Data_Inizio']}?")
+                        st.error(f"Confermi l'eliminazione della prenotazione?")
                         c1, c2 = st.columns(2)
-                        if c1.button("✅ SÌ, ELIMINA", key=f"real_del_{idx}"):
+                        if c1.button("✅ SÌ, ELIMINA DEFINITIVAMENTE", key=f"real_del_{idx}"):
                             df_new = df.drop(idx)
                             conn.update(worksheet="Prenotazioni", data=df_new)
                             del st.session_state[f"confirm_{idx}"]
@@ -145,7 +147,7 @@ else:
                             del st.session_state[f"confirm_{idx}"]
                             st.rerun()
 
-    # --- TAB 3: CALENDARIO ---
+    # --- TAB 3: CALENDARIO (Invariato per stabilità) ---
     with tab3:
         leg_h = "".join([f'<span class="legenda-item" style="background:{c["color"]}">{u}</span>' for u, c in utenti_config.items()])
         st.markdown(f'<div style="background:white; padding:10px; border-radius:10px;">🗓️ 2026 {leg_h}</div>', unsafe_allow_html=True)
