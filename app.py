@@ -5,10 +5,10 @@ from datetime import datetime, timedelta
 import time
 import os
 
-# --- CONFIGURAZIONE PAGINA (Originale Definitivo_1) ---
+# --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Family Booking", page_icon="🏠", layout="wide")
 
-# --- CSS DEFINITIVO (Originale Definitivo_1) ---
+# --- CSS DEFINITIVO ---
 st.markdown("""
     <style>
     [data-testid="stHeader"] { z-index: 999; }
@@ -29,10 +29,17 @@ st.markdown("""
     .full-cell { height: 100%; width: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; }
     .legenda-item { display: inline-block; padding: 4px 10px; border-radius: 5px; margin: 2px; color: white; font-size: 11px; font-weight: bold; }
     .stImage > img { border-radius: 10px; }
+    
+    /* Stile per il tasto Logout in alto */
+    .logout-container {
+        display: flex;
+        justify-content: flex-end;
+        padding: 10px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# --- FUNZIONI UTILITY (Originale Definitivo_1) ---
+# --- FUNZIONI UTILITY ---
 def get_data():
     conn = st.connection("gsheets", type=GSheetsConnection)
     data = conn.read(worksheet="Prenotazioni", ttl=0)
@@ -69,14 +76,21 @@ if not st.session_state['authenticated']:
             st.rerun()
         else: st.error("PIN errato")
 else:
-    current_user = st.session_state['user_name']
+    # --- LOGOUT IN ALTO (MODIFICA 1) ---
+    col_info, col_logout = st.columns([0.8, 0.2])
+    with col_info:
+        st.write(f"Connesso come: **{st.session_state['user_name']}**")
+    with col_logout:
+        if st.button("🔴 Logout", key="top_logout"):
+            st.session_state['authenticated'] = False
+            st.rerun()
+
     df = get_data()
     conn = st.connection("gsheets", type=GSheetsConnection)
     
-    st.write(f"Connesso come: **{current_user}**")
     tab1, tab2, tab3, tab4 = st.tabs(["📅 PRENOTA", "📊 GESTIONE", "🗓️ CALENDARIO", "📈 STATISTICHE"])
 
-    # --- TAB 1: PRENOTA (MODIFICATO: RIPRISTINO ELENCO + LOGICA CONTROLLO) ---
+    # --- TAB 1: PRENOTA ---
     with tab1:
         st.header("Nuova Prenotazione")
         oggi = datetime.now().date()
@@ -85,7 +99,6 @@ else:
         f_nome = "Noli.jpg" if casa_scelta == "NOLI" else "Limone.jpg"
         if os.path.exists(f_nome): st.image(f_nome, width=280)
 
-        # Ripristino visualizzazione elenco prenotazioni esistenti
         p_casa = df[df['Casa'] == casa_scelta].copy()
         if not p_casa.empty:
             st.write("---")
@@ -98,7 +111,6 @@ else:
         d_in = st.date_input("Check-in", value=oggi + timedelta(days=1), min_value=oggi)
         d_out = st.date_input("Check-out", value=d_in + timedelta(days=1), min_value=d_in + timedelta(days=1))
         
-        # LOGICA DI CONTROLLO SOVRAPPOSIZIONI (MODIFICA RICHIESTA)
         overlap = False
         conflitto = ""
         for _, r in p_casa.iterrows():
@@ -118,14 +130,14 @@ else:
             note = st.text_area("Note")
             if st.button("🚀 INVIA PRENOTAZIONE"):
                 nuova = pd.DataFrame([{
-                    "ID": str(datetime.now().timestamp()), "Casa": casa_scelta, "Utente": current_user,
+                    "ID": str(datetime.now().timestamp()), "Casa": casa_scelta, "Utente": st.session_state['user_name'],
                     "Data_Inizio": d_in.strftime('%d/%m/%Y'), "Data_Fine": d_out.strftime('%d/%m/%Y'),
                     "Stato": "In Attesa", "Voti_Ok": "", "Note": note
                 }])
                 conn.update(worksheet="Prenotazioni", data=pd.concat([df, nuova], ignore_index=True))
                 st.success("Inviato!"); time.sleep(1); st.rerun()
 
-    # --- TAB 2: GESTIONE (MODIFICATO: AGGIUNTA COLONNA GIORNI RICHIESTI) ---
+    # --- TAB 2: GESTIONE ---
     with tab2:
         st.header("Elenco prenotazioni")
         if not df.empty:
@@ -138,31 +150,32 @@ else:
                 return pd.Series([gg, ", ".join(v), ", ".join(m)])
 
             df[['Giorni richiesti', 'Approvato', 'Mancano']] = df.apply(process_row, axis=1)
-            
-            # MODIFICA: Ordine colonne con Giorni richiesti dopo Data_Fine
             cols = ['Casa', 'Utente', 'Data_Inizio', 'Data_Fine', 'Giorni richiesti', 'Stato', 'Approvato', 'Mancano']
             st.dataframe(df[cols], use_container_width=True, hide_index=True)
             
             st.divider()
+            # MODIFICA 2: ETICHETTE PULSANTI DETTAGLIATE
             st.subheader("🗳️ Approva")
             for idx, row in df.iterrows():
-                if row['Utente'] != current_user and row['Stato'] == "In Attesa":
+                if row['Utente'] != st.session_state['user_name'] and row['Stato'] == "In Attesa":
                     v_list = [x.strip() for x in str(row['Voti_Ok']).split(",") if x.strip()]
-                    if current_user not in v_list:
-                        if st.button(f"Approva {row['Casa']} ({row['Data_Inizio']})", key=f"v_{idx}"):
-                            v_list.append(current_user)
+                    if st.session_state['user_name'] not in v_list:
+                        label_approva = f"Approva: {row['Casa']} | {row['Data_Inizio']} - {row['Data_Fine']} | ({row['Utente']})"
+                        if st.button(label_approva, key=f"v_{idx}"):
+                            v_list.append(st.session_state['user_name'])
                             df.at[idx, 'Voti_Ok'] = ", ".join(v_list)
                             if len(v_list) >= 3: df.at[idx, 'Stato'] = "Confermata"
                             conn.update(worksheet="Prenotazioni", data=df.drop(columns=['Giorni richiesti', 'Approvato', 'Mancano']))
                             st.rerun()
             
-            st.subheader("🗑️ Elimina")
-            for idx, row in df[df['Utente'] == current_user].iterrows():
-                if st.button(f"Cancella {row['Data_Inizio']}", key=f"del_{idx}"):
+            st.subheader("🗑️ Elimina le tue")
+            for idx, row in df[df['Utente'] == st.session_state['user_name']].iterrows():
+                label_elimina = f"Cancella: {row['Casa']} | {row['Data_Inizio']} - {row['Data_Fine']}"
+                if st.button(label_elimina, key=f"del_{idx}"):
                     df_save = df.drop(idx).drop(columns=['Giorni richiesti', 'Approvato', 'Mancano'])
                     conn.update(worksheet="Prenotazioni", data=df_save); st.rerun()
 
-    # --- TAB 3: CALENDARIO (Originale Definitivo_1) ---
+    # --- TAB 3: CALENDARIO ---
     with tab3:
         leg_h = "".join([f'<span class="legenda-item" style="background:{c["color"]}">{u}</span>' for u, c in utenti_config.items()])
         leg_h += '<span class="legenda-item" style="background:#FFFFCC; color:#666; border:1px solid #ffd700">In Attesa</span>'
@@ -204,7 +217,7 @@ else:
                         if c_col > 6: html += "</tr><tr>"; c_col = 0
                     st.markdown(html + "</tr></table>", unsafe_allow_html=True)
 
-    # --- TAB 4: STATISTICHE (MODIFICATO: FOTO SOPRA I CONTEGGI) ---
+    # --- TAB 4: STATISTICHE ---
     with tab4:
         st.header("Statistiche")
         if not df.empty:
@@ -223,6 +236,3 @@ else:
                 a = df[(df['Utente'] == u) & (df['Stato'] == "In Attesa")]['GG'].sum()
                 stats.append({"Utente": u, "Confermati": int(c), "In attesa": int(a), "Totale": int(c+a)})
             st.dataframe(pd.DataFrame(stats), hide_index=True)
-            if st.button("🔴 Logout"):
-                st.session_state['authenticated'] = False
-                st.rerun()
