@@ -146,9 +146,31 @@ else:
                         scrivi_log(mio_nome, "ELIMINAZIONE", f"Cancellata prenotazione {r['Casa']} del {r['Data_Inizio']}")
                         st.rerun()
 
-    # --- TAB 3: CALENDARIO ---
+  # --- TAB 3: CALENDARIO ---
     with tabs[2]:
         st.header("Calendario Occupazioni 2026")
+        
+        # --- LEGENDA COLORI ---
+        legenda = {
+            "Chiara": "#FFC0CB",
+            "Gianluca": "#28A745",
+            "Lorenzo": "#1C83E1",
+            "Anita": "#FF4B4B",
+            "In Attesa": "#FFFFCC"
+        }
+        
+        cols_leg = st.columns(len(legenda))
+        for i, (nome, colore) in enumerate(legenda.items()):
+            text_color = "#000000" if nome == "In Attesa" else "#FFFFFF"
+            cols_leg[i].markdown(f"""
+                <div style="background-color:{colore}; padding:10px; border-radius:8px; 
+                text-align:center; font-weight:bold; color:{text_color}; border: 1px solid #ddd; font-size: 14px;">
+                    {nome}
+                </div>""", unsafe_allow_html=True)
+        
+        st.write("---")
+
+        # --- LOGICA CALENDARIO ---
         occ = {}
         for _, r in df.iterrows():
             s, e = parse_date(r['Data_Inizio']), parse_date(r['Data_Fine'])
@@ -175,11 +197,14 @@ else:
                 for meta, sym in [("NOLI", "🏖️"), ("LIMONE", "🏔️")]:
                     res = occ.get((d_obj, meta))
                     if res:
+                        # Colore utente se confermata (>=3 voti), altrimenti Giallo "In Attesa"
                         bg = f"background:{utenti_cfg.get(res['u'], '#eee')};" if res['v'] >= 3 else "background:#FFFFCC;"
                         ico += sym
                 html += f"<td class='cal-td' style='{bg}'><div class='day-num'>{d}</div>{ico}</td>"
                 curr_c += 1
-                if curr_c > 6: html += "</tr><tr>"; curr_c = 0
+                if curr_c > 6: 
+                    html += "</tr><tr>"
+                    curr_c = 0
             st.markdown(html + "</tr></table>", unsafe_allow_html=True)
 
     # --- TAB 4: STATISTICHE ---
