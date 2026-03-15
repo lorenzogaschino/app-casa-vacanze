@@ -12,34 +12,27 @@ st.markdown("""
     <head>
         <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/lorenzogaschino/app-casa-vacanze/main/icona_app.png">
         <link rel="icon" href="https://raw.githubusercontent.com/lorenzogaschino/app-casa-vacanze/main/icona_app.png">
-        
         <meta name="apple-mobile-web-app-capable" content="yes">
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
         <meta name="apple-mobile-web-app-title" content="Family Booking">
     </head>
     <style>
-        /* Pulsanti extra-large per uso mobile (touch-friendly) */
-        div.stButton > button { 
-            width: 100% !important; 
-            height: 4.8em !important; 
-            border-radius: 18px !important; 
-            font-weight: bold !important; 
-            font-size: 1.3rem !important;
-            border: 2px solid #f0f2f6 !important;
-        }
-        
-        /* Ottimizzazione tabelle calendario */
-        .cal-table { width:100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 20px; }
-        .cal-td { text-align:center; border:1px solid #eee; height:45px; position:relative; vertical-align: middle; }
-        .day-num { position: absolute; top: 2px; left: 4px; font-size: 10px; color: #999; }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    /* 2. Stile Calendario */
+    div.stButton > button { 
+        width: 100% !important; 
+        height: 4.5em !important; 
+        border-radius: 12px !important; 
+        font-weight: bold !important; 
+        font-size: 1.2rem !important;
+    }
     .cal-table { width:100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 20px; }
     .cal-td { text-align:center; border:1px solid #eee; height:45px; position:relative; vertical-align: middle; }
     .day-num { position: absolute; top: 2px; left: 4px; font-size: 10px; color: #999; }
+    </style>
+    """, unsafe_allow_html=True)
 
+# --- FUNZIONI CORE ---
+def get_data():
+  
     /* 3. Configurazione Mobile App (Meta Tags) */
     @media icon {
         <link rel="apple-touch-icon" href="icona_app.png">
