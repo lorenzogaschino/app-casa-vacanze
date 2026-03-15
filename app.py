@@ -11,8 +11,8 @@ st.set_page_config(page_title="Family Booking", page_icon="🏠", layout="center
 
 st.markdown("""
     <head>
-        <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/lorenzogaschino/app-casa-vacanze/main/icona_app.png">
-        <link rel="icon" href="https://raw.githubusercontent.com/lorenzogaschino/app-casa-vacanze/main/icona_app.png">
+<link rel="apple-touch-icon" href="https://raw.githubusercontent.com/lorenzogaschino/app-casa-vacanze/main/icona_app.png?v=1">
+<link rel="icon" href="https://raw.githubusercontent.com/lorenzogaschino/app-casa-vacanze/main/icona_app.png?v=1">
         <meta name="apple-mobile-web-app-capable" content="yes">
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
         <meta name="apple-mobile-web-app-title" content="Family Booking">
