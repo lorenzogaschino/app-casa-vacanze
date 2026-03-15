@@ -109,8 +109,19 @@ else:
         for _, r in df_casa.iterrows():
             v_list = [v.strip() for v in str(r['Voti_Ok']).split(',') if v.strip()]
             color, label = ("#FF4B4B", "🔴 CONFERMATA") if len(v_list) >= 3 else ("#FFD700", "⏳ RICHIESTA")
-            st.markdown(f"<div style='color:{color}; font-weight:bold;'>{label}: {r['Data_Inizio']} - {r['Data_Fine']} - {r['Utente']}</div>", unsafe_allow_html=True)
+# Controllo se la data di fine è già passata rispetto a oggi
+            d_fine_dt = parse_date(r['Data_Fine'])
+            oggi = datetime.now().date()
+            
+            if d_fine_dt and d_fine_dt < oggi:
+                color, label = ("#28A745", "✅ FATTA!") # Verde per i soggiorni conclusi
 
+            st.markdown(f"<div style='color:{color}; font-weight:bold; font-size: 0.85rem;'>{label}: {r['Data_Inizio']} - {r['Data_Fine']} - {r['Utente']}</div>", unsafe_allow_html=True)
+            
+            if d_fine_dt and d_fine_dt < oggi:
+                color, label = ("#28A745", "✅ FATTA!") # Verde per i soggiorni conclusi
+
+            st.markdown(f"<div style='color:{color}; font-weight:bold; font-size: 0.85rem;'>{label}: {r['Data_Inizio']} - {r['Data_Fine']} - {r['Utente']}</div>", unsafe_allow_html=True)
         with st.form("form_prenota"):
             d_in = st.date_input("Check-in", value=datetime.now().date())
             d_out = st.date_input("Check-out", value=datetime.now().date() + timedelta(days=1))
