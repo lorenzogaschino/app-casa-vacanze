@@ -6,14 +6,30 @@ import time
 import os
 
 # --- CONFIGURAZIONE ---
-st.set_page_config(page_title="Family Booking", page_icon="🏠", layout="wide")
+st.set_page_config(page_title="Family Booking", page_icon="🏠", layout="centered")
 
 st.markdown("""
     <style>
-    div.stButton > button { width: 100% !important; height: 3.5em !important; border-radius: 12px !important; font-weight: bold !important; }
+    /* 1. Pulsanti grandi e arrotondati per il pollice */
+    div.stButton > button { 
+        width: 100% !important; 
+        height: 4.5em !important; 
+        border-radius: 15px !important; 
+        font-weight: bold !important; 
+        font-size: 18px !important;
+    }
+    
+    /* 2. Stile Calendario */
     .cal-table { width:100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 20px; }
     .cal-td { text-align:center; border:1px solid #eee; height:45px; position:relative; vertical-align: middle; }
     .day-num { position: absolute; top: 2px; left: 4px; font-size: 10px; color: #999; }
+
+    /* 3. Configurazione Mobile App (Meta Tags) */
+    @media icon {
+        <link rel="apple-touch-icon" href="icona_app.png">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    }
     </style>
     """, unsafe_allow_html=True)
 
