@@ -13,13 +13,12 @@ st.markdown("""
     <head>
         <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/lorenzogaschino/app-casa-vacanze/main/icona_app.png">
         <link rel="icon" href="https://raw.githubusercontent.com/lorenzogaschino/app-casa-vacanze/main/icona_app.png">
-        
         <meta name="apple-mobile-web-app-capable" content="yes">
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
         <meta name="apple-mobile-web-app-title" content="Family Booking">
     </head>
     <style>
-    /* Pulsanti grandi per uso touch */
+    /* Pulsanti grandi per uso touch mobile */
     div.stButton > button { 
         width: 100% !important; 
         height: 4.5em !important; 
