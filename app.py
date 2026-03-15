@@ -15,7 +15,7 @@ st.markdown("""
 <link rel="icon" href="https://raw.githubusercontent.com/lorenzogaschino/app-casa-vacanze/main/icona_app.png?v=1">
         <meta name="apple-mobile-web-app-capable" content="yes">
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-        <meta name="apple-mobile-web-app-title" content="Family Booking">
+        <meta name="apple-mobile-web-app-title" content="Casa Vacanze">
     </head>
     <style>
     /* Pulsanti grandi per uso touch mobile */
