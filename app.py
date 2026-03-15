@@ -43,8 +43,12 @@ def get_data():
     for col in cols:
         if col not in data.columns: data[col] = ""
         data[col] = data[col].fillna("").astype(str).str.strip()
+# Crea una colonna temporanea per l'ordinamento
+    data['dt_start'] = pd.to_datetime(data['Data_Inizio'], dayfirst=True, errors='coerce')
+    # Ordina: le date più vicine a oggi appariranno per prime
+    data = data.sort_values(by='dt_start', ascending=True).drop(columns=['dt_start'])
+    
     return data[cols]
-
 def parse_date(d_str):
     if not d_str or str(d_str).lower() in ["", "nan", "none", "nat"]: return None
     for fmt in ('%d/%m/%Y', '%Y-%m-%d'):
